@@ -7,7 +7,7 @@ import {
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "./ui/tooltip";
+} from "../ui/tooltip";
 import classNames from "classnames";
 import { AnimatePresence } from "framer-motion";
 import { IconType } from "react-icons/lib";

@@ -1,3 +1,4 @@
+import * as randomstring from 'randomstring';
 import * as R from 'ramda';
 import Result from '@shared/true-myth/result';
 import {
@@ -10,8 +11,10 @@ import {
   PublicGame,
   PlayerId,
   PlayerStatusChange,
+  StatusType,
 } from '@shared/game/types';
 import { MAX_ROUND_ITEM_REFILL } from './game.constants';
+import { isDefined } from '@shared/typescript';
 
 export function replaceInArray<X>(
   with_: X,
@@ -142,23 +145,44 @@ export function generateEndOfTurnStatusDeltas(
   // status changes are associative
   const bigStatusChanges: PlayerStatusChange[] = game.playerStates.flatMap(
     (player) =>
-      player.statuses.flatMap(
-        (status): PlayerStatusChange =>
-          status.turns > 0
-            ? {
-                playerId: player.id,
-                type: 'upsert',
-                status: {
-                  ...status,
-                  turns: status.turns - 1,
+      player.statuses.flatMap((status): PlayerStatusChange[] => {
+        const upsertedStatus = {
+          playerId: player.id,
+          type: 'upsert' as const,
+          status: {
+            ...status,
+            turns: status.turns - 1,
+          },
+        };
+        const removedStatus = {
+          playerId: player.id,
+          type: 'rm' as const,
+          index: status.index,
+        };
+        switch (status.type) {
+          case StatusType.handcuffed: {
+            if (status.turns > 0) {
+              return [upsertedStatus];
+            } else {
+              const slipperyIndex = generateStatusIndex();
+              return [
+                removedStatus,
+                {
+                  playerId: player.id,
+                  type: 'upsert',
+                  status: {
+                    type: StatusType.slipperyHands,
+                    turns: 0,
+                    index: slipperyIndex,
+                  },
                 },
-              }
-            : {
-                playerId: player.id,
-                type: 'rm',
-                index: status.index,
-              },
-      ),
+              ];
+            }
+          }
+          default:
+            return [status.turns > 0 ? upsertedStatus : removedStatus];
+        }
+      }),
   );
 
   return Result.ok({
@@ -175,24 +199,43 @@ function applyPlayerStatusChanges(
   // TODO: make it better
   return {
     ...game,
-    playerStates: game.playerStates.map((player) => ({
-      ...player,
-      statuses: player.statuses
+    playerStates: game.playerStates.map((player) => {
+      const statusChangesForPlayer = statusChanges.filter(
+        (s) => s.playerId === player.id,
+      );
+      const updatedExistingStatuses = player.statuses
         .filter(
+          // rm status
           (status) =>
-            !statusChanges.find(
+            !statusChangesForPlayer.find(
               (change) => change.type === 'rm' && change.index === status.index,
             ),
         )
         .map((status) => {
-          const newStatus = statusChanges.find(
+          // update status
+          const newStatus = statusChangesForPlayer.find(
             (change) =>
               change.type === 'upsert' && change.status.index === status.index,
           );
           if (newStatus?.type !== 'upsert') return status;
           return newStatus.status;
-        }),
-    })),
+        });
+      const existingStatusesIndexes = updatedExistingStatuses.map(
+        (x) => x.index,
+      );
+      const newStatuses = statusChangesForPlayer
+        .map((s) =>
+          s.type === 'upsert' &&
+          !existingStatusesIndexes.includes(s.status.index)
+            ? s.status
+            : null,
+        )
+        .filter(isDefined);
+      return {
+        ...player,
+        statuses: [...updatedExistingStatuses, ...newStatuses],
+      };
+    }),
   };
 }
 
@@ -221,4 +264,8 @@ export function generateRefillPlayersDelta(
   }
 
   return Result.ok(deltas);
+}
+
+export function generateStatusIndex() {
+  return randomstring.generate(16);
 }

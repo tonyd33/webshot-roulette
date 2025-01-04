@@ -1,10 +1,8 @@
 "use client";
-import Chat from "@/components/chat";
+import Chat from "@/components/game/chat";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Socket } from "socket.io-client";
 import { useStableCallback } from "@/hooks/use-stable-callback";
-import { Button } from "@/components/ui/button";
-import { Code } from "@nextui-org/code";
 import {
   Action,
   ActionType,
@@ -14,15 +12,7 @@ import {
   ServerEvent,
 } from "@shared/game/types";
 import { useToast } from "@/hooks/use-toast";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import LobbyScreen from "@/components/lobby-screen";
+import LobbyScreen from "@/components/game/lobby-screen";
 import socket from "@/lib/socket";
 import FakeProgress from "@/components/fake-progress";
 
@@ -33,8 +23,10 @@ function LobbyClient({ lobbyId }: { lobbyId: string }) {
   const [deltas, setDeltas] = useState<PublicGameDelta[]>([]);
   const [lobby, setLobby] = useState<Lobby>();
 
-  const socketRef = useRef<Socket>(socket);
   useEffect(() => {
+    socket.removeAllListeners();
+
+    socket.connect();
     socket.on("connect", () => {
       socket.emit(ClientEvent.join, lobbyId);
       socket.emit(ClientEvent.poll, lobbyId);
@@ -82,7 +74,6 @@ function LobbyClient({ lobbyId }: { lobbyId: string }) {
         description: data,
       });
     });
-    // });
 
     return () => {
       socket.disconnect();
@@ -90,32 +81,31 @@ function LobbyClient({ lobbyId }: { lobbyId: string }) {
   }, [lobbyId, toast]);
 
   const handleChatMsg = useStableCallback(
-    (msg: string) => socketRef.current?.emit("chat", { lobbyId, msg }),
+    (msg: string) => socket.emit("chat", { lobbyId, msg }),
     [lobbyId]
   );
 
   const handleStart = useStableCallback(() => {
-    console.log(socketRef.current);
-    socketRef.current?.emit("start", { lobbyId });
+    socket.emit("start", { lobbyId });
   }, [lobbyId]);
 
   const handleShoot = useCallback(
     (playerIdToShoot: string) => {
       const action: Action = { type: ActionType.shoot, who: playerIdToShoot };
-      socketRef.current?.emit(ClientEvent.act, { lobbyId, action });
+      socket.emit(ClientEvent.act, { lobbyId, action });
     },
     [lobbyId]
   );
 
   const handleUseItem = useStableCallback(
     (useItem: Extract<Action, { type: "useItem" }>) => {
-      socketRef.current?.emit(ClientEvent.act, { lobbyId, action: useItem });
+      socket.emit(ClientEvent.act, { lobbyId, action: useItem });
     },
     [lobbyId]
   );
   const handlePass = useStableCallback(
     () =>
-      socketRef.current?.emit(ClientEvent.act, {
+      socket.emit(ClientEvent.act, {
         lobbyId,
         action: { type: ActionType.pass },
       }),
@@ -131,7 +121,7 @@ function LobbyClient({ lobbyId }: { lobbyId: string }) {
   );
 
   return (
-    <div>
+    <div className="p-8 md:p-14">
       {lobby && playerId ? (
         <LobbyScreen
           lobby={lobby}

@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { Input } from "./ui/input";
+import { Input } from "../ui/input";
 import { useStableCallback } from "@/hooks/use-stable-callback";
 
 type ChatProps = {

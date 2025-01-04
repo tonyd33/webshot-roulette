@@ -28,3 +28,7 @@ export function matchlike<ObjT>(
 export function ensureUnreachable(x: never): never {
   throw new Error(`Unreachable code, got ${x}`);
 }
+
+export function isDefined<T>(x: T | null): x is T {
+  return x != null;
+}

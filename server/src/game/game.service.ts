@@ -93,7 +93,8 @@ export class GameService {
   }
 
   async createLobby(): Promise<Result<Lobby, string>> {
-    const lobbyId: LobbyId = randomstring.generate(4);
+    const lobbyId: LobbyId =
+      `${randomstring.generate(3)}-${randomstring.generate(3)}`.toLowerCase();
     const lobby: Lobby = {
       id: lobbyId,
       state: 'waiting',

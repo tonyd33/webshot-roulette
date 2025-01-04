@@ -21,6 +21,8 @@ export enum ServerEvent {
   error = "error",
   whoyouare = "whoyouare",
   start = "start",
+
+  connect = "connect",
 }
 
 export enum Item {
@@ -34,6 +36,10 @@ export enum ActionType {
   shoot = "shoot",
   pass = "pass",
   useItem = "useItem",
+}
+export enum StatusType {
+  handcuffed = "handcuffed",
+  slipperyHands = "slipperyHands",
 }
 export const PlayerIdSchema = z.string();
 
@@ -95,9 +101,7 @@ export type Delta =
 export type Status = {
   index: StatusIndex;
   turns: number;
-} & {
-  type: "handcuffed";
-};
+} & ({ type: StatusType.handcuffed } | { type: StatusType.slipperyHands });
 
 export type PlayerState = {
   id: PlayerId;

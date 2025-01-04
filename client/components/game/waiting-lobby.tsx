@@ -1,7 +1,7 @@
 import { PlayerId, Waiting } from "@shared/game/types";
 import React from "react";
-import { Button } from "./ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
+import { Button } from "../ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import classNames from "classnames";
 import { FaChevronDown, FaChevronUp, FaCrown } from "react-icons/fa";
 import { useStableCallback } from "@/hooks/use-stable-callback";

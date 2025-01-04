@@ -1,13 +1,13 @@
 import classNames from "classnames";
 import * as R from "ramda";
-import { Status } from "@shared/game/types";
+import { Status, StatusType } from "@shared/game/types";
 import React, { useMemo, useState } from "react";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from "./ui/tooltip";
+} from "../ui/tooltip";
 import StatusIcon from "./status-icon";
 import { motion } from "motion/react";
 import { FaChevronCircleDown, FaChevronCircleUp } from "react-icons/fa";
@@ -19,8 +19,9 @@ type StatusDisplayProps = Pick<Status, "type" | "turns"> & {
   className?: string;
 };
 
-const statusTooltip: Record<Status["type"], string> = {
-  handcuffed: "Player's turn will be skipped.",
+const statusTooltip: Record<StatusType, string> = {
+  [StatusType.handcuffed]: "Player's turn will be skipped.",
+  [StatusType.slipperyHands]: "Player cannot be handcuffed.",
 };
 
 const StatusDisplay = React.memo(function (props: StatusDisplayProps) {

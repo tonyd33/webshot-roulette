@@ -10,6 +10,7 @@ import ItemButton from "./item-button";
 import Healthbar from "./healthbar";
 import { AnimatePresence } from "framer-motion";
 import { GiCrosshair } from "react-icons/gi";
+import { useHighlight } from "@/hooks/use-highlight";
 
 export type PlayerBoardProps = {
   me: PlayerState;
@@ -18,12 +19,30 @@ export type PlayerBoardProps = {
   onUseItem: (x: Extract<Action, { type: "useItem" }>) => unknown;
   targeted?: boolean;
   thinking?: boolean;
+  highlightPicture?: boolean;
 };
 
 const PlayerBoard = React.memo(function (props: PlayerBoardProps) {
-  const { me, other, interactable, onUseItem, targeted, thinking } = props;
+  const {
+    me,
+    other,
+    interactable,
+    onUseItem,
+    targeted,
+    thinking,
+    highlightPicture,
+  } = props;
   const thinkingInterval = useRef<NodeJS.Timeout>(null);
   const [numThinkingDots, setNumThinkingDots] = useState(1);
+
+  const { highlight, clear } = useHighlight();
+
+  const meHighlightId = `${me.id}_highlight`;
+
+  useEffect(() => {
+    if (highlightPicture) highlight(meHighlightId);
+    else clear();
+  }, [clear, highlight, highlightPicture, meHighlightId]);
 
   useEffect(() => {
     if (!thinking && thinkingInterval.current) {
@@ -44,7 +63,10 @@ const PlayerBoard = React.memo(function (props: PlayerBoardProps) {
 
   return (
     <div className="flex flex-row items-center space-x-2 p-2 justify-evenly border border-4 border-black rounded-sm bg-slate-500">
-      <div className="flex flex-col items-center justify-center bg-slate-300 basis-1/4 rounded h-32 relative">
+      <div
+        className="flex flex-col items-center justify-center bg-slate-300 basis-1/4 rounded h-32 relative"
+        id={meHighlightId}
+      >
         <Image
           src={`https://api.dicebear.com/9.x/dylan/svg?seed=${me.id}`}
           width={100}

@@ -1,44 +1,34 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-
-// const socket = io("http://localhost:3001", { path: "/api/socket.io" });
+import socket from "@/lib/socket";
+import { ClientEvent, Lobby, ServerEvent } from "@shared/game/types";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
 function HomeClient() {
-  // const [game, setGame] = useState(null);
-
-  // const [lobbyId, setLobbyId] = useState();
-
-  // useEffect(() => {
-  // socket.on("updateState", (newGame) => {
-  // setGame(newGame);
-  // });
-
-  // socket.on("createdLobby", (id) => {
-  // console.log("foo", id);
-  // setLobbyId(id);
-  // });
-  // socket.on("chat", (chat) => {
-  // console.log("chat");
-  // });
-
-  // return () => {};
-  // }, []);
-
-  // const createLobby = () => {
-  // socket.emit("createLobby");
-  // };
-
-  // const joinLobby = (lobbyId: string) => {
-  // socket.emit("joinLobby", lobbyId);
-  // };
+  const router = useRouter();
+  useEffect(() => {
+    socket.removeAllListeners();
+    socket.connect();
+    socket.on(ServerEvent.connect, () => {
+      socket.emit(ClientEvent.whoami);
+    });
+    socket.on(ServerEvent.syncLobby, (data: Lobby) => {
+      router.push(`/${data.id}`);
+      // router.refresh();
+    });
+    return () => {
+      socket.removeAllListeners();
+      socket.disconnect();
+    };
+  }, [router]);
 
   return (
     <div>
-      <Button onClick={() => {}}>Create lobby</Button>
       <Button
         onClick={() => {
-          // socket.emit("chat", { lobbyId, msg: "hello!" });
+          socket.emit(ClientEvent.create);
         }}
       >
         Create lobby

@@ -2,7 +2,7 @@ import * as R from "ramda";
 import { Action, PlayerId, PlayerState } from "@shared/game/types";
 import React from "react";
 import PlayerBoard from "./player-board";
-import { Button } from "./ui/button";
+import { Button } from "../ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -30,6 +30,7 @@ export type GameLayoutProps = {
 export type EphemeralGameLayout = {
   bullets?: { live: number; blank: number };
   targeting?: PlayerId[];
+  highlight?: { type: "player"; playerId: PlayerId };
 };
 
 const Shotgun = () => (
@@ -59,8 +60,12 @@ const GameLayout = React.memo(function (props: GameLayoutProps) {
         onUseItem={onUseItem}
         targeted={ephemeral?.targeting?.includes(other.id)}
         thinking={!isMyTurn}
+        highlightPicture={
+          ephemeral.highlight?.type === "player" &&
+          ephemeral.highlight.playerId === other.id
+        }
       />
-      <div className="flex flex-row justify-start items-center">
+      <div className="flex flex-row justify-center items-center">
         <Shotgun />
         {ephemeral?.bullets?.live && ephemeral.bullets.live > 0
           ? R.range(0, ephemeral.bullets.live).map((i) => (
@@ -96,6 +101,10 @@ const GameLayout = React.memo(function (props: GameLayoutProps) {
         onUseItem={onUseItem}
         targeted={ephemeral?.targeting?.includes(me.id)}
         thinking={isMyTurn && interactable}
+        highlightPicture={
+          ephemeral.highlight?.type === "player" &&
+          ephemeral.highlight.playerId === me.id
+        }
       />
     </div>
   );

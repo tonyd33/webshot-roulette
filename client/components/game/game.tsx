@@ -3,8 +3,7 @@ import * as R from "ramda";
 import useSound from "use-sound";
 import {
   Action,
-  ActionType,
-  Item,
+  Bullet,
   PlayerId,
   PublicGame,
   PublicGameDelta,
@@ -77,6 +76,20 @@ const Game = function (props: GameProps) {
     setEphemeral,
     onCompletion: handlePop,
   });
+  const { pass: startPassAnimation } = usePassAnimation({
+    setEphemeral,
+    onCompletion: handlePop,
+  });
+  const { pop: startPopAnimation } = usePopAnimation({
+    ephemeral,
+    setEphemeral,
+    onCompletion: handlePop,
+  });
+  const { inspect: startInspectAnimation } = useInspectAnimation({
+    ephemeral,
+    setEphemeral,
+    onCompletion: handlePop,
+  });
 
   // Dequeue a delta into currGameDelta
   useEffect(() => {
@@ -104,38 +117,16 @@ const Game = function (props: GameProps) {
         handlePop();
         break;
       case "pass":
-        handlePop();
+        startPassAnimation();
         break;
       case "shoot":
         startShootAnimation(delta.who, delta.hurt);
         break;
       case "inspect":
-        // honestly this should use a different animation but fuck it
-        // TODO: Create a different animation
-        setEphemeral({
-          bullets: {
-            live: delta.bullet === "live" ? 1 : 0,
-            blank: delta.bullet === "blank" ? 1 : 0,
-          },
-        });
-        startReloadAnimation({
-          live: delta.bullet === "live" ? 1 : 0,
-          blank: delta.bullet === "blank" ? 1 : 0,
-        });
+        startInspectAnimation(delta.bullet);
         break;
       case "pop":
-        // honestly this should use a different animation but fuck it
-        // TODO: Create a different animation
-        setEphemeral({
-          bullets: {
-            live: delta.bullet === "live" ? 1 : 0,
-            blank: delta.bullet === "blank" ? 1 : 0,
-          },
-        });
-        startReloadAnimation({
-          live: delta.bullet === "live" ? 1 : 0,
-          blank: delta.bullet === "blank" ? 1 : 0,
-        });
+        startPopAnimation(delta.bullet);
         break;
       case "nomnom":
         startEatAnimation();
@@ -162,6 +153,9 @@ const Game = function (props: GameProps) {
     startShootAnimation,
     startReloadAnimation,
     startEatAnimation,
+    startPassAnimation,
+    startPopAnimation,
+    startInspectAnimation,
   ]);
 
   const handleShoot = useStableCallback(
@@ -217,6 +211,109 @@ function useEatAnimation({
   return { eat };
 }
 
+function usePassAnimation({
+  onCompletion,
+}: {
+  setEphemeral: React.Dispatch<SetStateAction<EphemeralGameLayout>>;
+  onCompletion: () => unknown;
+}) {
+  const [playPass] = useSound("/sounds/pass.mp3", {
+    volume: 0.25,
+    onend: onCompletion,
+  });
+  const pass = useStableCallback(() => {
+    playPass();
+  }, [playPass]);
+
+  return { pass };
+}
+
+function usePopAnimation({
+  ephemeral,
+  setEphemeral,
+  onCompletion,
+}: {
+  ephemeral: EphemeralGameLayout;
+  setEphemeral: React.Dispatch<SetStateAction<EphemeralGameLayout>>;
+  onCompletion: () => unknown;
+}) {
+  const [animationSteps, setAnimationSteps] = useState<
+    AnimationStep<EphemeralGameLayout>[]
+  >([]);
+
+  const [playPop] = useSound("/sounds/pop.mp3", { volume: 0.25 });
+
+  const { start } = useAnimationSteps({
+    state: ephemeral,
+    setState: setEphemeral,
+    steps: animationSteps,
+    onCompletion,
+  });
+
+  const pop = useStableCallback(
+    (bullet: Bullet) => {
+      setAnimationSteps([
+        { effect: playPop, duration: 1 },
+        {
+          state: {
+            bullets:
+              bullet === "live" ? { live: 1, blank: 0 } : { blank: 1, live: 0 },
+          },
+          duration: 2000,
+        },
+      ]);
+
+      setTimeout(start, 1);
+    },
+    [playPop, start]
+  );
+
+  return { pop };
+}
+
+function useInspectAnimation({
+  ephemeral,
+  setEphemeral,
+  onCompletion,
+}: {
+  ephemeral: EphemeralGameLayout;
+  setEphemeral: React.Dispatch<SetStateAction<EphemeralGameLayout>>;
+  onCompletion: () => unknown;
+}) {
+  const [animationSteps, setAnimationSteps] = useState<
+    AnimationStep<EphemeralGameLayout>[]
+  >([]);
+
+  const [playInspect] = useSound("/sounds/inspect.mp3", { volume: 0.25 });
+
+  const { start } = useAnimationSteps({
+    state: ephemeral,
+    setState: setEphemeral,
+    steps: animationSteps,
+    onCompletion,
+  });
+
+  const inspect = useStableCallback(
+    (bullet: Bullet) => {
+      setAnimationSteps([
+        { effect: playInspect, duration: 1 },
+        {
+          state: {
+            bullets:
+              bullet === "live" ? { live: 1, blank: 0 } : { blank: 1, live: 0 },
+          },
+          duration: 2000,
+        },
+      ]);
+
+      setTimeout(start, 1);
+    },
+    [playInspect, start]
+  );
+
+  return { inspect };
+}
+
 function useShootAnimation({
   ephemeral,
   setEphemeral,
@@ -238,6 +335,7 @@ function useShootAnimation({
     "/sounds/shotgun-empty.mp3",
     { volume: 0.25 }
   );
+  const [playLockOn] = useSound("/sounds/lock-on.mp3", { volume: 0.25 });
 
   const { start } = useAnimationSteps({
     state: ephemeral,
@@ -249,17 +347,55 @@ function useShootAnimation({
   const shoot = useStableCallback(
     (target: PlayerId, dmg: number) => {
       setAnimationSteps([
-        { state: { targeting: [target] }, duration: 500 },
-        { state: { targeting: [] }, duration: 500 },
-        { state: { targeting: [target] }, duration: 500 },
+        { effect: playLockOn, duration: 1 },
+        {
+          state: {
+            targeting: [target],
+            highlight: { type: "player", playerId: target },
+          },
+          duration: 500,
+        },
+        {
+          state: {
+            targeting: [],
+            highlight: { type: "player", playerId: target },
+          },
+          duration: 500,
+        },
+        {
+          state: {
+            targeting: [target],
+            highlight: { type: "player", playerId: target },
+          },
+          duration: 750,
+        },
         dmg > 0
-          ? { effect: playShoot, duration: shootSoundDuration ?? 1000 }
-          : { effect: playEmpty, duration: emptySoundDuration ?? 1000 },
+          ? {
+              setState: (x) => {
+                playShoot();
+                return { ...x, bullets: { live: 1, blank: 0 } };
+              },
+              duration: shootSoundDuration ?? 1000,
+            }
+          : {
+              setState: (x) => {
+                playEmpty();
+                return { ...x, bullets: { live: 0, blank: 1 } };
+              },
+              duration: emptySoundDuration ?? 1000,
+            },
       ]);
 
       setTimeout(start, 1);
     },
-    [emptySoundDuration, playEmpty, playShoot, shootSoundDuration, start]
+    [
+      emptySoundDuration,
+      playEmpty,
+      playLockOn,
+      playShoot,
+      shootSoundDuration,
+      start,
+    ]
   );
 
   return { shoot };
@@ -295,8 +431,7 @@ function useBulletsAnimation({
   const reload = useStableCallback(
     ({ live, blank }: { live: number; blank: number }) => {
       const steps = [
-        { state: { bullets: { live, blank } }, duration: holdInitialInterval },
-        ...R.range(1, live + blank).flatMap(
+        ...R.range(0, live + blank).flatMap(
           (i): AnimationStep<EphemeralGameLayout>[] => {
             const liveNow = R.clamp(0, live, live - i);
             const blankNow = live + blank - liveNow - i;
@@ -306,7 +441,7 @@ function useBulletsAnimation({
                 state: {
                   bullets: { live: liveNow, blank: blankNow },
                 },
-                duration: 1,
+                duration: i === 0 ? holdInitialInterval : 1,
               },
               {
                 effect: playLoadShotgun,

@@ -1,4 +1,4 @@
-import { Item, Status } from "@shared/game/types";
+import { Item, Status, StatusType } from "@shared/game/types";
 import GameLayout from "./game-layout";
 import { Meta, StoryObj } from "@storybook/react";
 import { cycleList } from "@/lib/utils";
@@ -17,10 +17,10 @@ const meta = {
 export default meta;
 
 const statuses: Status[] = [
-  { index: "whatever0", type: "handcuffed", turns: 1 },
-  { index: "whatever1", type: "handcuffed", turns: 1 },
-  { index: "whatever2", type: "handcuffed", turns: 1 },
-  { index: "whatever3", type: "handcuffed", turns: 1 },
+  { index: "whatever0", type: StatusType.handcuffed, turns: 1 },
+  { index: "whatever1", type: StatusType.slipperyHands, turns: 1 },
+  { index: "whatever2", type: StatusType.handcuffed, turns: 1 },
+  { index: "whatever3", type: StatusType.slipperyHands, turns: 1 },
 ];
 
 const me = {

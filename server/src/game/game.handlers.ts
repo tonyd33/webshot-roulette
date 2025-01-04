@@ -1,4 +1,3 @@
-import * as randomstring from 'randomstring';
 import * as R from 'ramda';
 import Result from '@shared/true-myth/result';
 import {
@@ -13,6 +12,7 @@ import {
   PlayerId,
   PlayerState,
   Status,
+  StatusType,
 } from '@shared/game/types';
 import { firstRest, pop } from '@shared/true-myth/addons';
 import Maybe, { find } from '@shared/true-myth/maybe';
@@ -22,6 +22,7 @@ import {
   forwardDeltaResults,
   generateEndOfTurnStatusDeltas,
   generateRefillPlayersDelta,
+  generateStatusIndex,
   playerIdEq,
   replaceInArray,
   replacePlayerItemDelta,
@@ -178,14 +179,19 @@ function handleApplyItem(
 
       delta = player
         .andThen((p) =>
-          p.statuses.find((s) => s.type === 'handcuffed')
+          p.statuses.find((s) => s.type === StatusType.handcuffed)
             ? Result.err('Already handcuffed')
+            : Result.ok(p),
+        )
+        .andThen((p) =>
+          p.statuses.find((s) => s.type === StatusType.slipperyHands)
+            ? Result.err("Dude has slippery hands, can't cuff 'em")
             : Result.ok(p),
         )
         .map((p) => {
           const status: Status = {
-            index: randomstring.generate(16),
-            type: 'handcuffed' as const,
+            index: generateStatusIndex(),
+            type: StatusType.handcuffed,
             turns: 1,
           };
           return {

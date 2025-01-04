@@ -1,7 +1,8 @@
-import { Status } from "@shared/game/types";
+import { Status, StatusType } from "@shared/game/types";
 import StatusCarousel from "./status-carousel";
 import { Meta, StoryObj } from "@storybook/react";
 import _ from "lodash";
+import { cycleList } from "@/lib/utils";
 
 type StatusCarouselProps = React.ComponentProps<typeof StatusCarousel>;
 type Story = StoryObj<StatusCarouselProps>;
@@ -14,11 +15,13 @@ const meta = {
 } satisfies Meta<StatusCarouselProps>;
 export default meta;
 
-const statuses: Status[] = _.range(10).map((i) => ({
-  index: `whatever${i}`,
-  type: "handcuffed",
-  turns: i,
-}));
+const statuses: Status[] = cycleList(Object.values(StatusType))
+  .take(8)
+  .map((status, i) => ({
+    index: `whatever${status}_${i}`,
+    type: status,
+    turns: i,
+  }));
 
 export const Default = {
   args: { statuses },
