@@ -2,14 +2,19 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   /* config options here */
-  // async rewrites() {
-    // return [
-      // // {
-        // // source: `/api/v1/game`,
-        // // destination: `http://localhost:3000`,
-      // // },
-    // ]
-  // }
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "images.vexels.com",
+      },
+      {
+        protocol: "https",
+        hostname: "api.dicebear.com",
+      },
+    ],
+    dangerouslyAllowSVG: true,
+  },
 };
 
 export default nextConfig;

@@ -1,19 +1,18 @@
 "use client";
 import Chat from "@/components/chat";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { io } from "socket.io-client";
-import { useStableCallback } from "../hooks/useStableCallback";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Socket } from "socket.io-client";
+import { useStableCallback } from "@/hooks/use-stable-callback";
 import { Button } from "@/components/ui/button";
 import { Code } from "@nextui-org/code";
 import {
   Action,
-  ActionEffect,
+  ActionType,
   ClientEvent,
-  PublicDelta,
-  PublicGame,
+  Lobby,
+  PublicGameDelta,
   ServerEvent,
-  Waiting,
-} from "@/types/game";
+} from "@shared/game/types";
 import { useToast } from "@/hooks/use-toast";
 import {
   Table,
@@ -23,22 +22,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import Game from "@/components//game";
-
-const socket = io("http://localhost:3001", { path: "/api/v1/socket.io/" });
+import LobbyScreen from "@/components/lobby-screen";
+import socket from "@/lib/socket";
+import FakeProgress from "@/components/fake-progress";
 
 function LobbyClient({ lobbyId }: { lobbyId: string }) {
   const { toast } = useToast();
   const [chats, setChats] = useState<{ nonce: number; msg: string }[]>([]);
-  const [game, setGame] = useState<PublicGame>();
   const [playerId, setPlayerId] = useState<string>();
-  const [fxq, setFxq] = useState<ActionEffect[]>([]);
+  const [deltas, setDeltas] = useState<PublicGameDelta[]>([]);
+  const [lobby, setLobby] = useState<Lobby>();
 
+  const socketRef = useRef<Socket>(socket);
   useEffect(() => {
-    socket.connect();
-
     socket.on("connect", () => {
       socket.emit(ClientEvent.join, lobbyId);
+      socket.emit(ClientEvent.poll, lobbyId);
       socket.emit(ClientEvent.whoami);
     });
 
@@ -51,16 +50,30 @@ function LobbyClient({ lobbyId }: { lobbyId: string }) {
       setChats((prevChats) => [...prevChats, { nonce: Date.now(), msg }]);
     });
 
-    socket.on(ServerEvent.sync, (data: Waiting) => {
-      console.log(`Sync received `, data);
-      // TODO: consider unifying sync and delta
+    socket.on(ServerEvent.syncLobby, (data: Lobby) => {
+      setLobby(data);
+
+      if (data.state === "active") {
+        setDeltas((prevDeltas) => [
+          ...prevDeltas,
+          { game: data.game, delta: { type: "noop" } },
+        ]);
+      }
     });
 
-    socket.on(ServerEvent.delta, (data: PublicDelta) => {
+    socket.on(ServerEvent.delta, (data: PublicGameDelta[]) => {
       console.log(`Delta received `, data);
-      setGame(data.game);
-      setFxq((prevFxq) => [...prevFxq, ...data.effects]);
+      setDeltas((prev) => [...prev, ...data]);
     });
+
+    socket.on(
+      ServerEvent.start,
+      ({ lobby, deltas }: { lobby: Lobby; deltas: PublicGameDelta[] }) => {
+        console.log(`Start received `, { lobby, deltas });
+        setDeltas((prev) => [...prev, ...deltas]);
+        setLobby(lobby);
+      }
+    );
 
     socket.on(ServerEvent.error, (data: string) => {
       toast({
@@ -69,6 +82,7 @@ function LobbyClient({ lobbyId }: { lobbyId: string }) {
         description: data,
       });
     });
+    // });
 
     return () => {
       socket.disconnect();
@@ -76,72 +90,63 @@ function LobbyClient({ lobbyId }: { lobbyId: string }) {
   }, [lobbyId, toast]);
 
   const handleChatMsg = useStableCallback(
-    (msg: string) => socket.emit("chat", { lobbyId, msg }),
+    (msg: string) => socketRef.current?.emit("chat", { lobbyId, msg }),
     [lobbyId]
   );
 
   const handleStart = useStableCallback(() => {
-    socket.emit("start", { lobbyId });
+    console.log(socketRef.current);
+    socketRef.current?.emit("start", { lobbyId });
   }, [lobbyId]);
 
   const handleShoot = useCallback(
     (playerIdToShoot: string) => {
-      const action: Action = { type: "shoot", who: playerIdToShoot };
-      socket.emit(ClientEvent.act, { lobbyId, action });
+      const action: Action = { type: ActionType.shoot, who: playerIdToShoot };
+      socketRef.current?.emit(ClientEvent.act, { lobbyId, action });
     },
     [lobbyId]
   );
 
   const handleUseItem = useStableCallback(
-    (which: number) => {
-      const action: Action = { type: "useItem", which };
-      socket.emit(ClientEvent.act, { lobbyId, action });
+    (useItem: Extract<Action, { type: "useItem" }>) => {
+      socketRef.current?.emit(ClientEvent.act, { lobbyId, action: useItem });
     },
     [lobbyId]
+  );
+  const handlePass = useStableCallback(
+    () =>
+      socketRef.current?.emit(ClientEvent.act, {
+        lobbyId,
+        action: { type: ActionType.pass },
+      }),
+    [lobbyId]
+  );
+  const handlePopDelta = useStableCallback(
+    () =>
+      setDeltas((prev) => {
+        const [_whatever, ...rest] = prev;
+        return rest ?? [];
+      }),
+    []
   );
 
   return (
     <div>
-      <div className="flex flex-row">
-        <div className="grow">
-          <Button onClick={handleStart}>Start</Button>
-        </div>
-        <Chat onMsg={handleChatMsg} msgs={chats} />
-      </div>
-      {game && playerId && (
-        <Game
-          game={game}
-          fx={fxq}
-          playerId={playerId}
+      {lobby && playerId ? (
+        <LobbyScreen
+          lobby={lobby}
+          onChangeActivity={() => {}}
+          onStart={handleStart}
+          deltas={deltas}
+          onPopDelta={handlePopDelta}
+          me={playerId}
           onUseItem={handleUseItem}
-          onFxChange={setFxq}
           onShootPlayer={handleShoot}
+          onPass={handlePass}
         />
+      ) : (
+        <FakeProgress />
       )}
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Game</TableHead>
-            <TableHead>Effects</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableRow>
-            <TableCell>
-              <Code className="whitespace-pre-wrap">
-                {JSON.stringify(game, null, 2)}
-              </Code>
-            </TableCell>
-            <TableCell>
-              <Code className="whitespace-pre-wrap">
-                {JSON.stringify(fxq, null, 2)}
-              </Code>
-            </TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
-
-      <div className="flex flex-row"></div>
     </div>
   );
 }

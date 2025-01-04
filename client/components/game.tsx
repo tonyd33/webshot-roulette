@@ -1,157 +1,329 @@
 "use client";
-import { Action, ActionEffect, Item, PublicGame } from "@/types/game";
-import { useEffect, useMemo, useState } from "react";
-import { Button } from "./ui/button";
+import * as R from "ramda";
+import useSound from "use-sound";
+import {
+  Action,
+  ActionType,
+  Item,
+  PlayerId,
+  PublicGame,
+  PublicGameDelta,
+} from "@shared/game/types";
+import { SetStateAction, useEffect, useMemo, useState } from "react";
 import { toast } from "@/hooks/use-toast";
-import { useStableCallback } from "@/app/hooks/useStableCallback";
-import ItemIcon from "./item-icon";
-import { GiPerson, GiSawedOffShotgun } from "react-icons/gi";
+import { useStableCallback } from "@/hooks/use-stable-callback";
+import GameLayout, { EphemeralGameLayout } from "./game-layout";
+import { ensureUnreachable } from "@shared/typescript";
+import { AnimationStep, useAnimationSteps } from "@/hooks/use-animation";
 
 export type GameProps = {
-  game: PublicGame;
-  fx: ActionEffect[];
-  onFxChange: (fx: ActionEffect[]) => unknown;
-  playerId: string;
-  onUseItem: (which: number) => unknown;
+  /** A list of deltas that are consumed in this component */
+  deltas: PublicGameDelta[];
+  /** Notify parent upon successful consumption */
+  onPopDelta: () => unknown;
+  me: string;
+  onUseItem: (useItem: Extract<Action, { type: "useItem" }>) => unknown;
   onShootPlayer: (playerId: string) => unknown;
+  onPass: () => unknown;
 };
 
 const Game = function (props: GameProps) {
-  const { game, fx, playerId, onUseItem, onFxChange, onShootPlayer } = props;
+  const {
+    deltas,
+    me: playerId,
+    onUseItem,
+    onPopDelta,
+    onShootPlayer,
+    onPass,
+  } = props;
 
-  const [currFx, setCurrFx] = useState<ActionEffect>();
+  const [currGameDelta, setCurrGameDelta] = useState<PublicGameDelta>();
+  const [game, setGame] = useState<PublicGame>();
+  const [ephemeral, setEphemeral] = useState<EphemeralGameLayout>({});
 
   const me = useMemo(
-    () => game.playerStates.find((x) => x.id === playerId),
-    [game.playerStates, playerId]
+    () => game?.playerStates.find((x) => x.id === playerId),
+    [game?.playerStates, playerId]
   );
   const other = useMemo(
-    () => game.playerStates.find((x) => x.id !== playerId),
-    [game.playerStates, playerId]
+    () => game?.playerStates.find((x) => x.id !== playerId),
+    [game?.playerStates, playerId]
   );
 
-  const isMyTurn = me?.turn === game.turn;
-  const interactable = fx.length === 0 && isMyTurn;
+  const isMyTurn = me?.turn === game?.turn;
+  const interactable = deltas.length === 0 && isMyTurn;
 
+  const handlePop = useStableCallback(() => {
+    setGame(currGameDelta?.game);
+    setCurrGameDelta(undefined);
+    setEphemeral({});
+    // Without the `setTimeout`, I get an error saying a component cannot be
+    // updated from another component or something.
+    onPopDelta();
+  }, [currGameDelta?.game, onPopDelta]);
+
+  const { reload: startReloadAnimation } = useBulletsAnimation({
+    ephemeral,
+    setEphemeral,
+    onCompletion: handlePop,
+    holdInitialInterval: 1500,
+  });
+  const { shoot: startShootAnimation } = useShootAnimation({
+    ephemeral,
+    setEphemeral,
+    onCompletion: handlePop,
+  });
+  const { eat: startEatAnimation } = useEatAnimation({
+    setEphemeral,
+    onCompletion: handlePop,
+  });
+
+  // Dequeue a delta into currGameDelta
   useEffect(() => {
-    if (fx.length === 0 || currFx) return;
+    // only when there are deltas and we aren't currently processing a delta.
+    if (deltas.length === 0 || currGameDelta) return;
 
-    const [first] = fx;
-    setCurrFx(first);
-  }, [currFx, fx, onFxChange]);
+    const [first] = deltas;
+    // The first delta is skipped. We immediately set the game
+    if (!game) {
+      setGame(first.game);
+    } else {
+      setCurrGameDelta(first);
+    }
+  }, [currGameDelta, deltas, game]);
 
+  // When a delta is received, play an animation. Upon success, set the
+  // current game to the result of the delta and notify that the delta
+  // has been consumed.
   useEffect(() => {
-    if (!currFx) return;
-    toast({ description: `Playing effect ${currFx.type}` });
-    setTimeout(() => {
-      setCurrFx(undefined);
-      onFxChange(fx.slice(1));
-    }, 1000);
-  }, [currFx, fx, onFxChange]);
+    if (!currGameDelta) return;
 
-  const handleShootMe = useStableCallback(() => {
-    if (!me) {
-      toast({ description: "I don't know who to shoot" });
-      return;
+    const delta = currGameDelta.delta;
+    switch (delta.type) {
+      case "noop":
+        handlePop();
+        break;
+      case "pass":
+        handlePop();
+        break;
+      case "shoot":
+        startShootAnimation(delta.who, delta.hurt);
+        break;
+      case "inspect":
+        // honestly this should use a different animation but fuck it
+        // TODO: Create a different animation
+        setEphemeral({
+          bullets: {
+            live: delta.bullet === "live" ? 1 : 0,
+            blank: delta.bullet === "blank" ? 1 : 0,
+          },
+        });
+        startReloadAnimation({
+          live: delta.bullet === "live" ? 1 : 0,
+          blank: delta.bullet === "blank" ? 1 : 0,
+        });
+        break;
+      case "pop":
+        // honestly this should use a different animation but fuck it
+        // TODO: Create a different animation
+        setEphemeral({
+          bullets: {
+            live: delta.bullet === "live" ? 1 : 0,
+            blank: delta.bullet === "blank" ? 1 : 0,
+          },
+        });
+        startReloadAnimation({
+          live: delta.bullet === "live" ? 1 : 0,
+          blank: delta.bullet === "blank" ? 1 : 0,
+        });
+        break;
+      case "nomnom":
+        startEatAnimation();
+        break;
+      case "statusChanges":
+        setTimeout(handlePop, 500);
+        break;
+      case "itemChanges":
+        setTimeout(handlePop, 50);
+        break;
+      case "reload":
+        startReloadAnimation({ live: delta.lives, blank: delta.blanks });
+        break;
+      case "gg":
+        toast({ description: `Playing effect ${currGameDelta.delta.type}` });
+        setTimeout(handlePop, 1000);
+        break;
+      default:
+        ensureUnreachable(delta);
     }
-    onShootPlayer(me.id);
-  }, [me, onShootPlayer]);
+  }, [
+    currGameDelta,
+    handlePop,
+    startShootAnimation,
+    startReloadAnimation,
+    startEatAnimation,
+  ]);
 
-  const handleShootOther = useStableCallback(() => {
-    const other = game.playerStates.find((x) => x.id !== me?.id);
-    if (!other) {
-      toast({ description: "I don't know who to shoot" });
-      return;
-    }
-    onShootPlayer(other.id);
-  }, [game.playerStates, me, onShootPlayer]);
-
-  const shotgun = useMemo(() => <GiSawedOffShotgun />, []);
+  const handleShoot = useStableCallback(
+    (who: "me" | "other") => {
+      if (who === "me") {
+        if (!me) {
+          toast({ description: "I don't know who to shoot" });
+          return;
+        }
+        onShootPlayer(me.id);
+      } else if (who === "other") {
+        if (!other) {
+          toast({ description: "I don't know who to shoot" });
+          return;
+        }
+        onShootPlayer(other.id);
+      }
+    },
+    [me, onShootPlayer, other]
+  );
 
   return (
-    <div>
-      <div className="flex flex-row justify-center text-5xl">
-        <GiPerson />
-        <div className={isMyTurn ? "hidden" : ""}>{shotgun}</div>
-      </div>
-      <div className="grid grid-rows-2 grid-flow-col gap-4">
-        {other?.items.map((item, i) => (
-          <Button key={i} disabled>
-            <ItemIcon item={item} />
-          </Button>
-        ))}
-      </div>
-      <div>
-        <Button onClick={handleShootMe}>Shoot me</Button>
-        <Button onClick={handleShootOther}>Shoot you</Button>
-      </div>
-      <div className="grid grid-rows-2 grid-flow-col gap-4">
-        {me?.items.map((item, i) => (
-          <Button
-            key={i}
-            onClick={() => onUseItem(i)}
-            disabled={item === Item.nothing || !interactable}
-          >
-            <ItemIcon item={item} />
-          </Button>
-        ))}
-      </div>
-      <div className="flex flex-row justify-center text-5xl">
-        <GiPerson />
-        <div className={!isMyTurn ? "hidden" : ""}>{shotgun}</div>
-      </div>
-    </div>
+    me &&
+    other && (
+      <GameLayout
+        me={me}
+        other={other}
+        onUseItem={onUseItem}
+        interactable={interactable}
+        onPass={onPass}
+        onShoot={handleShoot}
+        isMyTurn={isMyTurn}
+        ephemeral={ephemeral}
+      />
+    )
   );
 };
 
-// const Game = function (props: GameProps) {
-// const pixiContainer = useRef<HTMLDivElement>(null);
-// const app = useRef<PIXI.Application<PIXI.Renderer<HTMLCanvasElement>>>(null);
+function useEatAnimation({
+  onCompletion,
+}: {
+  setEphemeral: React.Dispatch<SetStateAction<EphemeralGameLayout>>;
+  onCompletion: () => unknown;
+}) {
+  const [playEat] = useSound("/sounds/nomnom.mp3", {
+    volume: 0.25,
+    onend: onCompletion,
+  });
+  const eat = useStableCallback(() => {
+    playEat();
+  }, [playEat]);
 
-// useEffect(() => {
-// (async () => {
-// app.current = new PIXI.Application<PIXI.Renderer<HTMLCanvasElement>>();
-// await app.current?.init({
-// width: 800,
-// height: 600,
-// // resizeTo: window,
-// background: "#1099bb",
-// });
-// pixiContainer.current?.appendChild(app.current?.canvas);
-// const [garyTexture, bareTexture, gunTexture] = await Promise.all([
-// PIXI.Assets.load("/sprites/gary/gary.png"),
-// PIXI.Assets.load("/sprites/bare/bare.png"),
-// PIXI.Assets.load("/sprites/gun/gun.png"),
-// ]);
-// const gary = new PIXI.Sprite(garyTexture);
-// const bare = new PIXI.Sprite(bareTexture);
-// const gun = new PIXI.Sprite(gunTexture);
+  return { eat };
+}
 
-// gary.anchor.set(0.5);
-// gary.x = 50;
-// gary.y = 100;
-// app.current.stage.addChild(gary);
+function useShootAnimation({
+  ephemeral,
+  setEphemeral,
+  onCompletion,
+}: {
+  ephemeral: EphemeralGameLayout;
+  setEphemeral: React.Dispatch<SetStateAction<EphemeralGameLayout>>;
+  onCompletion: () => unknown;
+}) {
+  const [animationSteps, setAnimationSteps] = useState<
+    AnimationStep<EphemeralGameLayout>[]
+  >([]);
 
-// bare.anchor.set(0.5);
-// bare.x = 200
-// bare.y = 100;
-// app.current.stage.addChild(bare);
+  const [playShoot, { duration: shootSoundDuration }] = useSound(
+    "/sounds/shotgun-fire.mp3",
+    { volume: 0.25 }
+  );
+  const [playEmpty, { duration: emptySoundDuration }] = useSound(
+    "/sounds/shotgun-empty.mp3",
+    { volume: 0.25 }
+  );
 
-// gun.anchor.set(0.5);
-// gun.x = 100;
-// gun.y = 100;
-// app.current.stage.addChild(gun);
+  const { start } = useAnimationSteps({
+    state: ephemeral,
+    setState: setEphemeral,
+    steps: animationSteps,
+    onCompletion,
+  });
 
-// pixiContainer.current?.appendChild(app.current?.canvas);
-// })();
+  const shoot = useStableCallback(
+    (target: PlayerId, dmg: number) => {
+      setAnimationSteps([
+        { state: { targeting: [target] }, duration: 500 },
+        { state: { targeting: [] }, duration: 500 },
+        { state: { targeting: [target] }, duration: 500 },
+        dmg > 0
+          ? { effect: playShoot, duration: shootSoundDuration ?? 1000 }
+          : { effect: playEmpty, duration: emptySoundDuration ?? 1000 },
+      ]);
 
-// // Cleanup on component unmount
-// return () => {
-// app.current?.destroy(true, true);
-// };
-// }, []);
+      setTimeout(start, 1);
+    },
+    [emptySoundDuration, playEmpty, playShoot, shootSoundDuration, start]
+  );
 
-// return <div ref={pixiContainer} />;
-// };
+  return { shoot };
+}
+
+function useBulletsAnimation({
+  ephemeral,
+  setEphemeral,
+  onCompletion,
+  holdInitialInterval,
+}: {
+  ephemeral: EphemeralGameLayout;
+  setEphemeral: React.Dispatch<SetStateAction<EphemeralGameLayout>>;
+  onCompletion: () => unknown;
+  holdInitialInterval: number;
+}) {
+  const [animationSteps, setAnimationSteps] = useState<
+    AnimationStep<EphemeralGameLayout>[]
+  >([]);
+
+  const [playLoadShotgun, { duration: playLoadShotgunDuration }] = useSound(
+    "/sounds/shotgun-cock.mp3",
+    { volume: 0.25 }
+  );
+
+  const { start } = useAnimationSteps({
+    state: ephemeral,
+    setState: setEphemeral,
+    steps: animationSteps,
+    onCompletion,
+  });
+
+  const reload = useStableCallback(
+    ({ live, blank }: { live: number; blank: number }) => {
+      const steps = [
+        { state: { bullets: { live, blank } }, duration: holdInitialInterval },
+        ...R.range(1, live + blank).flatMap(
+          (i): AnimationStep<EphemeralGameLayout>[] => {
+            const liveNow = R.clamp(0, live, live - i);
+            const blankNow = live + blank - liveNow - i;
+
+            return [
+              {
+                state: {
+                  bullets: { live: liveNow, blank: blankNow },
+                },
+                duration: 1,
+              },
+              {
+                effect: playLoadShotgun,
+                duration: playLoadShotgunDuration ?? 1000,
+              },
+            ];
+          }
+        ),
+      ];
+      setAnimationSteps(steps);
+
+      setTimeout(start, 1);
+    },
+    [holdInitialInterval, playLoadShotgun, playLoadShotgunDuration, start]
+  );
+
+  return { reload };
+}
 
 export default Game;

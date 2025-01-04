@@ -4,9 +4,17 @@ import { createProxyMiddleware } from "http-proxy-middleware";
 const proxy = createProxyMiddleware({
   target: "http://localhost:3000",
   ws: true,
-  pathRewrite: { "^/api/v1/socket.io": "/socket.io/" },
-  followRedirects: true,
+  pathRewrite: { "^/api/v1/ws/socket.io": "/v1/ws/socket.io/" },
+  changeOrigin: true,
+  // logger: console,
 });
+
+export const config = {
+  api: {
+    bodyParser: false,
+    externalResolver: true,
+  },
+};
 
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
   proxy(req, res, (err) => {
@@ -17,9 +25,3 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     throw new Error("Bad request");
   });
 }
-
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};

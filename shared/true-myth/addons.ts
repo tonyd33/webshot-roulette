@@ -75,6 +75,3 @@ export function firstRest<X>(arr: X[]): Result<[X, X[]], string> {
   return Result.ok([first, rest]);
 }
 
-export function ensureUnreachable(x: never): Result<never, string> {
-  return Result.err(`Unreachable code, got ${x}`);
-}
