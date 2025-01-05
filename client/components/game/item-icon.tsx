@@ -3,6 +3,7 @@ import { Item } from "@shared/game/types";
 import {
   GiCardboardBox,
   GiHandcuffs,
+  GiHandSaw,
   GiMagnifyingGlass,
   GiShinyApple,
   GiSodaCan,
@@ -28,6 +29,8 @@ const ItemIcon = React.memo(function (props: ItemIconProps) {
         return GiSodaCan;
       case Item.handcuff:
         return GiHandcuffs;
+      case Item.handsaw:
+        return GiHandSaw;
       case Item.nothing:
         return GiCardboardBox;
       default:
@@ -43,6 +46,8 @@ const ItemIcon = React.memo(function (props: ItemIconProps) {
       case Item.pop:
         return "text-orange-500";
       case Item.handcuff:
+        return "text-gray-700";
+      case Item.handsaw:
         return "text-gray-700";
       case Item.nothing:
         return "text-slate-500";

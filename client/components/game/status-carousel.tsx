@@ -21,6 +21,7 @@ type StatusDisplayProps = Pick<Status, "type" | "turns"> & {
 
 const statusTooltip: Record<StatusType, string> = {
   [StatusType.handcuffed]: "Player's turn will be skipped.",
+  [StatusType.sawed]: "Player's next shot will deal double damage.",
   [StatusType.slipperyHands]: "Player cannot be handcuffed.",
 };
 
@@ -38,12 +39,12 @@ const StatusDisplay = React.memo(function (props: StatusDisplayProps) {
         >
           <StatusIcon type={type} size={24} />
           <span className="absolute -top-1 -right-3 -translate-x-1 text-[10px] leading-[12px] text-white p-0.5 border border-black rounded-[50%] bg-black w-4 h-4">
-            {turns}
+            {turns ?? "∞"}
           </span>
         </TooltipTrigger>
         <TooltipContent>
           <p>{statusTooltip[type]}</p>
-          <p>{turns} turn(s) remaining.</p>
+          <p>{turns ?? "∞"} turn(s) remaining.</p>
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>

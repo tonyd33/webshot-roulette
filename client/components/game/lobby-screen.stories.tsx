@@ -1,4 +1,4 @@
-import { Waiting } from "@shared/game/types";
+import { Item, WaitingLobby } from "@shared/game/types";
 import LobbyScreen from "./lobby-screen";
 import { Meta, StoryObj } from "@storybook/react";
 
@@ -15,12 +15,17 @@ const meta = {
 } satisfies Meta<LobbyScreenProps>;
 export default meta;
 
-const waiting: Waiting = {
+const waiting: WaitingLobby = {
   id: "abcd",
   state: "waiting",
   players: ["previous-scarlet-lizard", "mad-magenta-leech"],
   spectators: ["burly-yellow-groundhog", "rambunctious-cyan-tortoise"],
   creator: "burly-yellow-groundhog",
+  settings: {
+    stackHandsaws: false,
+    itemDistribution: Object.values(Item).filter((x) => x !== Item.nothing),
+    players: 2,
+  },
 };
 
 export const Default = {

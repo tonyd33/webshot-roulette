@@ -18,8 +18,10 @@ import {
   LobbyId,
   PlayerId,
   PublicGameDelta,
-  Waiting,
+  WaitingLobby,
   Game,
+  PublicLobby,
+  GameSettingsSchema,
 } from '@shared/game/types';
 import {
   MAX_LOBBY_TTL_SECONDS,
@@ -31,12 +33,11 @@ import {
   forwardDeltaResults,
   getLatestGame,
   toPublicDeltas,
+  toPublicLobby,
 } from './game.utils';
-import {
-  handleAction,
-  handleNextRound,
-  handlePreTransferControl,
-} from './game.handlers';
+import { handleAction } from './game.handlers';
+import { forwardPreTransferControls } from './game.forwarders';
+import { forwardNextRound } from './game.forwarders';
 
 @Injectable()
 export class GameService {
@@ -60,7 +61,7 @@ export class GameService {
     const latestGame = getLatestGame(deltas);
     if (latestGame.isErr) return deltas;
 
-    const lobby = await this.getLobby(lobbyId).then(unwrapOrThrow);
+    const lobby = await this.#getLobby(lobbyId).then(unwrapOrThrow);
 
     await this.#syncLobbyEffect(lobbyId, {
       ...lobby,
@@ -70,7 +71,7 @@ export class GameService {
     return deltas;
   }
 
-  async getLobby(lobbyId: LobbyId): Promise<Result<Lobby, string>> {
+  async #getLobby(lobbyId: LobbyId): Promise<Result<Lobby, string>> {
     return this.redis
       .get(lobbyId)
       .then((x) => (x ? Result.ok(x) : Result.err('Could not find lobby')))
@@ -80,8 +81,51 @@ export class GameService {
     >;
   }
 
+  async getPublicLobby(lobbyId: LobbyId): Promise<Result<PublicLobby, string>> {
+    return this.#getLobby(lobbyId).then(map(toPublicLobby));
+  }
+
+  async changeSettings(
+    lobbyId: LobbyId,
+    playerId: PlayerId,
+    settingsUnsafe: any,
+  ): Promise<Result<PublicLobby, string>> {
+    const settings = zodParseResult(
+      GameSettingsSchema.partial(),
+      settingsUnsafe,
+    );
+
+    if (settings.isErr) {
+      return Result.err('Invalid settings');
+    }
+
+    return this.#getLobby(lobbyId)
+      .then(unwrapOrThrow)
+      .then(
+        guardPromise(
+          (l) => l.state === 'waiting',
+          'Cannot change settings now',
+        ),
+      )
+      .then((l) => l as WaitingLobby)
+      .then(
+        guardPromise(
+          (l) => l.creator === playerId,
+          'Only the creator can change settings',
+        ),
+      )
+      .then((lobby) => ({
+        ...lobby,
+        settings: { ...lobby.settings, ...settings.value },
+      }))
+      .then((lobby) => this.#syncLobbyEffect(lobbyId, lobby))
+      .then(toPublicLobby)
+      .then((x) => Result.ok(x))
+      .catch(catchPromise);
+  }
+
   async getGame(lobbyId: LobbyId): Promise<Result<Game, string>> {
-    return this.getLobby(lobbyId)
+    return this.#getLobby(lobbyId)
       .then(
         andThen((lobby) =>
           lobby.state === 'active'
@@ -92,7 +136,7 @@ export class GameService {
       .catch(catchPromise);
   }
 
-  async createLobby(playerId: PlayerId): Promise<Result<Lobby, string>> {
+  async createLobby(playerId: PlayerId): Promise<Result<PublicLobby, string>> {
     const lobbyId: LobbyId =
       `${randomstring.generate(3)}-${randomstring.generate(3)}`.toLowerCase();
     const lobby: Lobby = {
@@ -101,23 +145,29 @@ export class GameService {
       players: [],
       spectators: [],
       creator: playerId,
+      settings: {
+        stackHandsaws: false,
+        handcuffCooldownTurns: 1,
+        itemDistribution: Object.values(Item).filter((x) => x !== Item.nothing),
+        players: 2,
+      },
     };
     await this.#syncLobbyEffect(lobbyId, lobby);
 
-    return Result.ok(lobby);
+    return Result.ok(toPublicLobby(lobby));
   }
 
   async changeActivity(
     lobbyId: LobbyId,
     playerId: PlayerId,
     to: 'spectate' | 'active',
-  ): Promise<Result<Lobby, string>> {
-    return this.getLobby(lobbyId)
+  ): Promise<Result<PublicLobby, string>> {
+    return this.#getLobby(lobbyId)
       .then(unwrapOrThrow)
       .then(
         guardPromise((x) => x.state === 'waiting', 'Lobby should be waiting'),
       )
-      .then((x: Waiting) => {
+      .then((x: WaitingLobby) => {
         if (to === 'active') {
           if (x.players.length >= MAX_PLAYERS)
             return Result.err('Too many active players');
@@ -137,6 +187,7 @@ export class GameService {
       })
       .then(unwrapOrThrow)
       .then((lobby) => this.#syncLobbyEffect(lobbyId, lobby))
+      .then(toPublicLobby)
       .then((x) => Result.ok(x))
       .catch(catchPromise);
   }
@@ -144,8 +195,8 @@ export class GameService {
   async joinLobby(
     lobbyId: LobbyId,
     playerId: PlayerId,
-  ): Promise<Result<Lobby, string>> {
-    const lobby = await this.getLobby(lobbyId)
+  ): Promise<Result<PublicLobby, string>> {
+    const lobby = await this.#getLobby(lobbyId)
       .then(unwrapOrThrow)
       .then((x: Lobby): Lobby => {
         if (x.players.includes(playerId) || x.spectators.includes(playerId)) {
@@ -157,6 +208,7 @@ export class GameService {
         }
       })
       .then((lobby) => this.#syncLobbyEffect(lobbyId, lobby))
+      .then(toPublicLobby)
       .then((x) => Result.ok(x))
       .catch(catchPromise);
 
@@ -166,8 +218,10 @@ export class GameService {
   async start(
     lobbyId: LobbyId,
     playerId: PlayerId,
-  ): Promise<Result<{ lobby: Lobby; deltas: PublicGameDelta[] }, string>> {
-    const deltas: Result<PublicGameDelta[], string> = await this.getLobby(
+  ): Promise<
+    Result<{ lobby: PublicLobby; deltas: PublicGameDelta[] }, string>
+  > {
+    const deltas: Result<PublicGameDelta[], string> = await this.#getLobby(
       lobbyId,
     )
       .then(unwrapOrThrow)
@@ -177,7 +231,7 @@ export class GameService {
             (x: Lobby) => x.state === 'waiting',
             'Game already started',
           ),
-          (x) => x as Waiting,
+          (x) => x as WaitingLobby,
         ),
       )
       .then(
@@ -204,25 +258,27 @@ export class GameService {
             statuses: [],
           })),
           turn: 0,
+          settings: lobby.settings,
         }),
       )
       .then(
         (game): Result<GameDeltas, string> =>
           Result.ok([{ game, delta: { type: 'noop' } }]),
       )
-      .then((deltas) => forwardDeltaResults(handleNextRound, deltas))
+      .then((deltas) => forwardDeltaResults(forwardNextRound, deltas))
       .then(unwrapOrThrow)
       .then((delta) => this.#syncDeltaEffect(lobbyId, delta))
       .then(toPublicDeltas)
       .then((x) => Result.ok(x))
       .catch(catchPromise);
 
-    const lobby = await this.getLobby(lobbyId);
+    const lobby = await this.#getLobby(lobbyId).then(map(toPublicLobby));
 
-    const joinLobbyDelta = (lobby: Lobby) => (deltas: PublicGameDelta[]) => ({
-      lobby,
-      deltas,
-    });
+    const joinLobbyDelta =
+      (lobby: PublicLobby) => (deltas: PublicGameDelta[]) => ({
+        lobby,
+        deltas,
+      });
 
     return Result.ok<typeof joinLobbyDelta, string>(joinLobbyDelta)
       .ap(lobby)
@@ -259,7 +315,7 @@ export class GameService {
           deltas,
         ),
       )
-      .then((deltas) => forwardDeltaResults(handlePreTransferControl, deltas))
+      .then((deltas) => forwardDeltaResults(forwardPreTransferControls, deltas))
       .then(unwrapOrThrow)
       .then((delta) => this.#syncDeltaEffect(lobbyId, delta))
       .then(toPublicDeltas)

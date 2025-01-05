@@ -12,9 +12,13 @@ import {
   PlayerId,
   PlayerStatusChange,
   StatusType,
+  Lobby,
+  PublicLobby,
+  GameSettings,
 } from '@shared/game/types';
 import { MAX_ROUND_ITEM_REFILL } from './game.constants';
 import { isDefined } from '@shared/typescript';
+import { find as maybeFind } from '@shared/true-myth/maybe';
 
 export function replaceInArray<X>(
   with_: X,
@@ -40,6 +44,19 @@ export function getLatestGame(deltas: GameDelta[]): Result<Game, string> {
 
 export function doneGame(game: Game): boolean {
   return !!game.playerStates.find((p) => p.health <= 0);
+}
+
+export function findPlayer(
+  player: PlayerId,
+  game: Game,
+): Result<PlayerState, string> {
+  const targetPlayer: Result<PlayerState, string> = maybeFind(
+    (p) => p.id === player,
+    game.playerStates,
+  )
+    .map((p) => Result.ok(p))
+    .unwrapOr(Result.err('No player'));
+  return targetPlayer;
 }
 
 export function replacePlayerItemDelta(
@@ -90,21 +107,31 @@ export function toPublicDeltas(deltas: GameDeltas): PublicGameDelta[] {
     }));
 }
 
+export function toPublicLobby(lobby: Lobby): PublicLobby {
+  switch (lobby.state) {
+    case 'waiting':
+      return { mark: 'public' as const, ...lobby };
+    case 'active':
+      return {
+        mark: 'public' as const,
+        ...lobby,
+        game: toPublicGame(lobby.game),
+      };
+  }
+}
+
 export function pickRandom<X>(arr: X[], n: number) {
   return R.range(0, n)
     .map(() => Math.floor(Math.random() * arr.length))
     .map((i) => arr[i]);
 }
 
-export function refillPlayerItems(player: PlayerState) {
+export function refillPlayerItems(settings: GameSettings, player: PlayerState) {
   const needsNumItems = Math.min(
     player.items.filter((x) => x === Item.nothing).length,
     MAX_ROUND_ITEM_REFILL,
   );
-  const randomItems = pickRandom(
-    Object.values(Item).filter((x) => x !== Item.nothing),
-    needsNumItems,
-  );
+  const randomItems = pickRandom(settings.itemDistribution, needsNumItems);
 
   const items: Item[] = [];
   const itemChanges: { slot: number; item: Item }[] = [];
@@ -146,12 +173,13 @@ export function generateEndOfTurnStatusDeltas(
   const bigStatusChanges: PlayerStatusChange[] = game.playerStates.flatMap(
     (player) =>
       player.statuses.flatMap((status): PlayerStatusChange[] => {
+        const turns = status.turns ?? Number.POSITIVE_INFINITY;
         const upsertedStatus = {
           playerId: player.id,
           type: 'upsert' as const,
           status: {
             ...status,
-            turns: status.turns - 1,
+            turns: turns - 1,
           },
         };
         const removedStatus = {
@@ -161,26 +189,30 @@ export function generateEndOfTurnStatusDeltas(
         };
         switch (status.type) {
           case StatusType.handcuffed: {
-            if (status.turns > 0) {
+            if (turns > 0) {
               return [upsertedStatus];
             } else {
               const slipperyIndex = generateStatusIndex();
               return [
                 removedStatus,
-                {
-                  playerId: player.id,
-                  type: 'upsert',
-                  status: {
-                    type: StatusType.slipperyHands,
-                    turns: 0,
-                    index: slipperyIndex,
-                  },
-                },
+                ...(game.settings.handcuffCooldownTurns >= 1
+                  ? [
+                      {
+                        playerId: player.id,
+                        type: 'upsert' as const,
+                        status: {
+                          type: StatusType.slipperyHands,
+                          turns: game.settings.handcuffCooldownTurns - 1,
+                          index: slipperyIndex,
+                        },
+                      },
+                    ]
+                  : []),
               ];
             }
           }
           default:
-            return [status.turns > 0 ? upsertedStatus : removedStatus];
+            return [turns > 0 ? upsertedStatus : removedStatus];
         }
       }),
   );
@@ -191,11 +223,12 @@ export function generateEndOfTurnStatusDeltas(
   }).map((x) => [x]);
 }
 
-function applyPlayerStatusChanges(
+export function applyPlayerStatusChanges(
   game: Game,
   statusChanges: PlayerStatusChange[],
 ): Game {
-  // this fucking sucks lol
+  // this fucking sucks lol. but it works and my eyes are free of this mess 99%
+  // of the time so I'm gonna ignore it.
   // TODO: make it better
   return {
     ...game,
@@ -245,7 +278,7 @@ export function generateRefillPlayersDelta(
   const deltas: GameDeltas = [];
   let currGame = game;
   for (const player of game.playerStates) {
-    const { items, itemChanges } = refillPlayerItems(player);
+    const { items, itemChanges } = refillPlayerItems(game.settings, player);
     currGame = {
       ...game,
       playerStates: replaceInArray(

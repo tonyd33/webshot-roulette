@@ -9,6 +9,7 @@ export enum ClientEvent {
   poll = "poll",
   whoami = "whoami",
   changeActivity = "changeActivity",
+  changeSettings = "changeSettings",
 
   disconnect = "disconnect",
   connect = "connect",
@@ -31,6 +32,7 @@ export enum Item {
   apple = "apple",
   handcuff = "handcuff",
   nothing = "nothing",
+  handsaw = "handsaw",
 }
 export enum ActionType {
   shoot = "shoot",
@@ -39,6 +41,7 @@ export enum ActionType {
 }
 export enum StatusType {
   handcuffed = "handcuffed",
+  sawed = "sawed",
   slipperyHands = "slipperyHands",
 }
 export const PlayerIdSchema = z.string();
@@ -52,7 +55,7 @@ const UseItemSchema = z.union([
   z.object({
     type: z.enum([ActionType.useItem]),
     which: z.number().int(),
-    item: z.enum([Item.pop, Item.magnifyingGlass, Item.apple]),
+    item: z.enum([Item.pop, Item.magnifyingGlass, Item.apple, Item.handsaw]),
   }),
   z.object({
     type: z.enum([ActionType.useItem]),
@@ -98,10 +101,16 @@ export type Delta =
   | { type: "reload"; lives: number; blanks: number }
   | { type: "gg" };
 
-export type Status = {
-  index: StatusIndex;
-  turns: number;
-} & ({ type: StatusType.handcuffed } | { type: StatusType.slipperyHands });
+export type Status =
+  | {
+      index: StatusIndex;
+      /** null = Number.POSITIVE_INFINITY */
+      turns: number | null;
+    } & (
+      | { type: StatusType.handcuffed }
+      | { type: StatusType.slipperyHands }
+      | { type: StatusType.sawed }
+    );
 
 export type PlayerState = {
   id: PlayerId;
@@ -117,23 +126,43 @@ export type Game = {
   playerStates: PlayerState[];
   turn: number;
   maxPlayerItems: number;
+  settings: GameSettings;
 };
+export type PublicGame = Omit<Game, "gun">;
 
-export type Lobby = {
+export const GameSettingsSchema = z.object({
+  stackHandsaws: z.boolean(),
+  handcuffCooldownTurns: z.number().int().gte(0),
+  itemDistribution: z.nativeEnum(Item).array(),
+  players: z.literal(2),
+});
+
+export type GameSettings = z.infer<typeof GameSettingsSchema>;
+
+type BaseLobby = {
   id: LobbyId;
   spectators: PlayerId[];
   players: PlayerId[];
   creator: PlayerId;
-} & (
-  | {
-      state: "active";
-      game: Game;
-    }
-  | { state: "waiting" }
-);
-export type GameLobby = Extract<Lobby, { state: "active" }>;
-export type PublicGame = Omit<Game, "gun">;
-export type Waiting = Extract<Lobby, { state: "waiting" }>;
+};
+
+export type GameLobby = BaseLobby & {
+  state: "active";
+  game: Game;
+};
+export type PublicGameLobby = Omit<GameLobby, "game"> & {
+  game: PublicGame;
+};
+export type WaitingLobby = BaseLobby & {
+  state: "waiting";
+  settings: GameSettings;
+};
+export type PublicWaitingLobby = WaitingLobby;
+
+export type Lobby = GameLobby | WaitingLobby;
+export type PublicLobby = (PublicGameLobby | PublicWaitingLobby) & {
+  mark: "public";
+};
 
 export type GameDeltas = GameDelta[];
 export type GameDelta = {

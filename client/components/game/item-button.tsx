@@ -25,6 +25,7 @@ const itemTooltip: Record<Item, string> = {
   [Item.magnifyingGlass]: "Reveal the next bullet.",
   [Item.apple]: "Heal 1HP.",
   [Item.handcuff]: "Skip the opponent's next turn.",
+  [Item.handsaw]: "Deal double damage next time you shoot.",
   [Item.nothing]: "Nothing here, wait for the next round!",
 };
 
@@ -35,6 +36,7 @@ const ItemButton = React.memo(function (props: ItemButtonProps) {
       case Item.apple:
       case Item.magnifyingGlass:
       case Item.pop:
+      case Item.handsaw:
         onUseItem({ type: ActionType.useItem, which: slot, item });
         break;
       case Item.handcuff:

@@ -14,8 +14,8 @@ import { GameService } from './game.service';
 import * as R from 'ramda';
 import {
   ClientEvent,
-  Lobby,
   PublicGameDelta,
+  PublicLobby,
   ServerEvent,
 } from '@shared/game/types';
 import {
@@ -80,11 +80,12 @@ const withResult = <X, E>(
   }
 };
 
-const withSyncResult = withResult<Lobby, string>;
+// TODO: DONT FUCKING SEND THE BULLETS
+const withSyncResult = withResult<PublicLobby, string>;
 const withDeltaResult = withResult<PublicGameDelta[], string>;
 const withWhoyouareResult = withResult<string, string>;
 const withStartResult = withResult<
-  { lobby: Lobby; deltas: PublicGameDelta[] },
+  { lobby: PublicLobby; deltas: PublicGameDelta[] },
   string
 >;
 
@@ -105,7 +106,7 @@ export class GameGateway {
 
   afterInit() {
     this.server.engine.on('initial_headers', handleCookie);
-    // this.server.engine.on('headers', handleCookie);
+    this.server.engine.on('headers', handleCookie);
   }
 
   @SubscribeMessage(ClientEvent.create)
@@ -184,7 +185,28 @@ export class GameGateway {
             console.log(`Responding to poll for ${clientId} on ${lobbyId}`),
           ),
         )
-        .map(() => this.gameService.getLobby(lobbyId))
+        .map(() => this.gameService.getPublicLobby(lobbyId))
+        .unwrapOrElse((e: string) => Promise.resolve(Result.err(e))),
+    );
+  }
+
+  @SubscribeMessage(ClientEvent.changeSettings)
+  async handleChangeSettings(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() { lobbyId, settings }: { lobbyId: string; settings: any },
+  ) {
+    withSyncResult(
+      (payload) => this.server.to(lobbyId).emit(ServerEvent.syncLobby, payload),
+      (payload) => client.emit(ServerEvent.error, payload),
+      await getPlayerId(client)
+        .map(
+          R.tap((clientId) =>
+            console.log(`${clientId} changing settings on ${lobbyId}`),
+          ),
+        )
+        .map((clientId) =>
+          this.gameService.changeSettings(lobbyId, clientId, settings),
+        )
         .unwrapOrElse((e: string) => Promise.resolve(Result.err(e))),
     );
   }

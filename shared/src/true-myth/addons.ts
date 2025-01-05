@@ -1,23 +1,23 @@
-import R from 'ramda';
-import Result from './result';
-import Unit from './unit';
-import { z } from 'zod';
+import R from "ramda";
+import Result from "./result";
+import Unit from "./unit";
+import { z } from "zod";
 
-export const thenGuard =
-  <X>(pred: (x: X) => boolean) =>
-  (x: Result<X, Unit>): Result<X, Unit> =>
-    x.andThen((xi) => (pred(xi) ? Result.ok(xi) : Result.err()));
+export const guardResultAndThen =
+  <X>(pred: (x: X) => boolean, message: string) =>
+  (x: X): Result<X, string> =>
+    pred(x) ? Result.ok(x) : Result.err(message);
 
 export const catchPromise = (x: any, message?: string) => {
   if (message) return Result.err(message);
   if (x instanceof Error) return Result.err(x.message);
-  else if (typeof x === 'string') return Result.err(x);
-  else return Result.err('Unknown error');
+  else if (typeof x === "string") return Result.err(x);
+  else return Result.err("Unknown error");
 };
 
-export const pop = function <X>(
+export const popItem = function <X>(
   pred: (x: X) => boolean,
-  xs: X[],
+  xs: X[]
 ): Result<[X, X[]], Unit> {
   const idx = xs.findIndex(pred);
   if (idx === -1) return Result.err();
@@ -31,12 +31,12 @@ export function transposeResArray<T extends unknown[], E>(ress: {
   return ress.reduce(
     (acc: Result<unknown[], E>, c) =>
       acc.andThen((rs) => c.map((c) => [...rs, c])),
-    Result.ok([]),
+    Result.ok([])
   ) as Result<{ [K in keyof T]: T[K] }, E>;
 }
 
 export async function invertResultPromise<X, E>(
-  x: Result<Promise<X>, E>,
+  x: Result<Promise<X>, E>
 ): Promise<Result<X, E>> {
   if (x.isOk) {
     return Result.ok(await x.value);
@@ -44,11 +44,6 @@ export async function invertResultPromise<X, E>(
     return Result.err(x.error);
   }
 }
-
-export const then =
-  <X, Y>(cb: (x: X) => Y) =>
-  (x: Promise<X>) =>
-    x.then(cb);
 
 export const guardPromise =
   <X>(pred: (x: X) => boolean, msg: string) =>
@@ -70,8 +65,7 @@ export function zodParseResult(schema: z.ZodTypeAny, toParse: any) {
 }
 
 export function firstRest<X>(arr: X[]): Result<[X, X[]], string> {
-  if (arr.length === 0) return Result.err('No items');
+  if (arr.length === 0) return Result.err("No items");
   const [first, ...rest] = arr;
   return Result.ok([first, rest]);
 }
-

@@ -6,6 +6,7 @@ import {
   Action,
   ActionType,
   ClientEvent,
+  GameSettings,
   Lobby,
   PublicGameDelta,
   ServerEvent,
@@ -120,11 +121,17 @@ function LobbyClient({ lobbyId }: { lobbyId: string }) {
   );
   const handleChangeActivity = useStableCallback(
     (to: "spectate" | "active") => {
-      console.log(to);
       socket.emit(ClientEvent.changeActivity, {
         lobbyId,
         to,
       });
+    },
+    [lobbyId]
+  );
+
+  const handleChangeSettings = useStableCallback(
+    (settings: Partial<GameSettings>) => {
+      socket.emit(ClientEvent.changeSettings, { lobbyId, settings });
     },
     [lobbyId]
   );
@@ -135,6 +142,7 @@ function LobbyClient({ lobbyId }: { lobbyId: string }) {
         <LobbyScreen
           lobby={lobby}
           onChangeActivity={handleChangeActivity}
+          onChangeSettings={handleChangeSettings}
           onStart={handleStart}
           deltas={deltas}
           onPopDelta={handlePopDelta}

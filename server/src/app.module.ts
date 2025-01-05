@@ -3,15 +3,19 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { GameModule } from './game/game.module';
 import { RedisModule } from '@liaoliaots/nestjs-redis';
+import redisConfig from './config/redis.config';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
-    RedisModule.forRoot({
-      config: {
-        host: process.env.REDIS_HOST ?? 'localhost',
-        port: +(process.env.REDIS_PORT ?? '6379'),
-      },
-    }),
+    ConfigModule.forRoot({ isGlobal: true }),
+    RedisModule.forRootAsync(redisConfig.asProvider()),
+    // RedisModule.forRoot({
+    // config: {
+    // host: process.env.REDIS_HOST ?? 'localhost',
+    // port: +(process.env.REDIS_PORT ?? '6379'),
+    // },
+    // }),
     GameModule,
   ],
   controllers: [AppController],

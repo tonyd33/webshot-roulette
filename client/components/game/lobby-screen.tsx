@@ -1,12 +1,12 @@
 import {
   Action,
-  GameDelta,
+  GameSettings,
   Lobby,
   PlayerId,
   PublicGameDelta,
 } from "@shared/game/types";
 import React from "react";
-import WaitingLobby from "./waiting-lobby";
+import WaitingLobbyType from "./waiting-lobby";
 import { ensureUnreachable } from "@shared/typescript";
 import Game from "./game";
 
@@ -15,6 +15,7 @@ export type LobbyScreenProps = {
 
   me: PlayerId;
   onChangeActivity: (to: "spectate" | "active") => unknown;
+  onChangeSettings: (settings: Partial<GameSettings>) => unknown;
   onStart: () => unknown;
 
   deltas: PublicGameDelta[];
@@ -29,6 +30,7 @@ const LobbyScreen = React.memo(function (props: LobbyScreenProps) {
     lobby,
     onChangeActivity,
     onStart,
+    onChangeSettings,
     me,
     deltas,
     onPopDelta,
@@ -39,12 +41,13 @@ const LobbyScreen = React.memo(function (props: LobbyScreenProps) {
   switch (lobby.state) {
     case "waiting":
       return (
-        <WaitingLobby
+        <WaitingLobbyType
           lobby={lobby}
           onStart={onStart}
           me={me}
           creator={lobby.creator}
           onChangeActivity={onChangeActivity}
+          onChangeSettings={onChangeSettings}
         />
       );
     case "active":

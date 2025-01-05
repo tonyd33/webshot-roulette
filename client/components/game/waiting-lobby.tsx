@@ -1,17 +1,23 @@
-import { PlayerId, Waiting } from "@shared/game/types";
+import {
+  GameSettings,
+  PlayerId,
+  WaitingLobby as WaitingLobbyType,
+} from "@shared/game/types";
 import React from "react";
 import { Button } from "../ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import classNames from "classnames";
 import { FaChevronDown, FaChevronUp, FaCopy, FaCrown } from "react-icons/fa";
 import { useStableCallback } from "@/hooks/use-stable-callback";
+import SettingsDialogButton from "./settings-dialog-button";
 
 export type WaitingLobbyProps = {
-  lobby: Waiting;
+  lobby: WaitingLobbyType;
   onStart: () => unknown;
   me?: PlayerId;
   creator?: PlayerId;
   onChangeActivity: (to: "active" | "spectate") => unknown;
+  onChangeSettings: (settings: Partial<GameSettings>) => unknown;
 };
 
 const PlayersList = React.memo(function (props: {
@@ -52,7 +58,8 @@ const PlayersList = React.memo(function (props: {
 PlayersList.displayName = "PlayersList";
 
 const WaitingLobby = React.memo(function (props: WaitingLobbyProps) {
-  const { lobby, onStart, me, creator, onChangeActivity } = props;
+  const { lobby, onStart, me, creator, onChangeActivity, onChangeSettings } =
+    props;
   const handleChangePlaying = useStableCallback(
     () => onChangeActivity("active"),
     [onChangeActivity]
@@ -89,6 +96,11 @@ const WaitingLobby = React.memo(function (props: WaitingLobbyProps) {
         <Button size="lg" onClick={onStart}>
           Start
         </Button>
+        <SettingsDialogButton
+          onChangeSettings={onChangeSettings}
+          settings={lobby.settings}
+          canSave={creator === me}
+        />
         <Button size="icon" onClick={handleChangeSpectating}>
           <FaChevronDown />
         </Button>
