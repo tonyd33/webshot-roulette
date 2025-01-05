@@ -131,17 +131,27 @@ const Game = function (props: GameProps) {
       case "nomnom":
         startEatAnimation();
         break;
+      case "hurt":
+        handlePop();
+        break;
+      case "inverted":
+        toast({ description: `Playing effect ${currGameDelta.delta.type}` });
+        setTimeout(handlePop, 1000);
+        break;
       case "statusChanges":
-        setTimeout(handlePop, 500);
+        setTimeout(handlePop, 10);
         break;
       case "itemChanges":
-        setTimeout(handlePop, 50);
+        setTimeout(handlePop, 10);
         break;
       case "reload":
         startReloadAnimation({ live: delta.lives, blank: delta.blanks });
         break;
       case "gg":
-        toast({ description: `Playing effect ${currGameDelta.delta.type}` });
+        toast({
+          title: "Game finished",
+          description: `${delta.winner} has won!`,
+        });
         setTimeout(handlePop, 1000);
         break;
       default:

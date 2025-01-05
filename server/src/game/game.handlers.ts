@@ -1,3 +1,4 @@
+import * as R from 'ramda';
 import Result from '@shared/true-myth/result';
 import {
   Action,
@@ -5,6 +6,7 @@ import {
   Delta,
   Game,
   GameDeltas,
+  HandsawDamageStackBehavior,
   Item,
   PlayerId,
   PlayerState,
@@ -12,17 +14,21 @@ import {
 } from '@shared/game/types';
 import { popItem } from '@shared/true-myth/addons';
 import Maybe, { find as maybeFind } from '@shared/true-myth/maybe';
-import { matchlike } from '@shared/typescript';
+import { ensureUnreachable, matchlike } from '@shared/typescript';
 import {
+  applyDelta,
+  doneGame,
   findPlayer,
   forwardDeltaResults,
-  replacePlayerItemDelta,
+  getAvailableActions,
 } from './game.utils';
 import { forwardNextTurn, forwardStripSawedStatus } from './game.forwarders';
 import {
   forwardApplyApple,
   forwardApplyHandcuff,
   forwardApplyHandsaw,
+  forwardApplyHotPotato,
+  forwardApplyInverter,
   forwardApplyMagnifyingGlass,
   forwardApplyPop,
 } from './game.item-forwarders';
@@ -33,16 +39,21 @@ function handleShoot(
   action: Extract<Action, { type: 'shoot' }>,
 ): Result<GameDeltas, string> {
   const [bullet, ...rest] = game.gun;
+
+  // get multiplier based on settings
   const multiplier = findPlayer(player, game)
     .map((p) =>
-      // Yes, this may allow a player to deal ridiculous damage on one turn
-      // because there are no countermeasures to stacking handsaws.
-      // Is it fair? No.
-      // Is it funny? Hell yeah.
-      p.statuses.reduce(
-        (acc, s) => (s.type === StatusType.sawed ? 2 : 1) * acc,
-        1,
-      ),
+      p.statuses.reduce((acc, s) => {
+        if (s.type !== StatusType.sawed) return acc;
+        switch (game.settings.handsawDamageStackBehavior) {
+          case HandsawDamageStackBehavior.add:
+            return acc + 1;
+          case HandsawDamageStackBehavior.multiply:
+            return acc * 2;
+          default:
+            ensureUnreachable(game.settings.handsawDamageStackBehavior);
+        }
+      }, 1),
     )
     .unwrapOr(1);
 
@@ -72,6 +83,7 @@ function handleShoot(
       ]);
   }
 
+  // no matter what, the handsaw status should be removed
   deltas = forwardDeltaResults(
     (game) => forwardStripSawedStatus(player, game),
     deltas,
@@ -90,7 +102,7 @@ function handleUseItem(
   player: PlayerId,
   game: Game,
   action: Extract<Action, { type: 'useItem' }>,
-) {
+): Result<GameDeltas, string> {
   const playerState: Maybe<PlayerState> = maybeFind(
     (x) => x.id === player,
     game.playerStates,
@@ -104,61 +116,86 @@ function handleUseItem(
   if (item.value !== action.item) return Result.err('Mismatching item');
 
   // remove item
-  let out = replacePlayerItemDelta(player, action.which, Item.nothing, game);
-  // then apply the item
-  out = forwardDeltaResults(
-    (game) => handleApplyItem(player, game, action),
-    out,
-  );
-  return out;
+  return R.flow(Result.ok([{ game, delta: { type: 'noop' } }]), [
+    // remove item
+    forwardDeltaResults(
+      applyDelta(R.__, {
+        type: 'itemChanges',
+        itemChanges: [
+          { playerId: player, item: Item.nothing, slot: action.which },
+        ],
+      }),
+    ),
+    // apply the item
+    forwardDeltaResults(handleApplyItem(player, R.__, action)),
+  ]);
 }
 
 /** Assume the item has been validated to exist */
-function handleApplyItem(
-  player: PlayerId,
-  game: Game,
-  action: Extract<Action, { type: 'useItem' }>,
-): Result<GameDeltas, string> {
-  const delta = matchlike(action)('item')({
-    [Item.pop]: (action) => forwardApplyPop(player, game, action),
-    [Item.magnifyingGlass]: (action) =>
-      forwardApplyMagnifyingGlass(player, game, action),
-    [Item.apple]: (action) => forwardApplyApple(player, game, action),
-    [Item.handcuff]: (action) => forwardApplyHandcuff(player, game, action),
-    [Item.handsaw]: (action) => forwardApplyHandsaw(player, game, action),
-  });
+const handleApplyItem = R.curryN(
+  3,
+  function (
+    player: PlayerId,
+    game: Game,
+    action: Extract<Action, { type: 'useItem' }>,
+  ): Result<GameDeltas, string> {
+    const delta = matchlike(action)('item')({
+      [Item.pop]: (action) => forwardApplyPop(player, game, action),
+      [Item.magnifyingGlass]: (action) =>
+        forwardApplyMagnifyingGlass(player, game, action),
+      [Item.apple]: (action) => forwardApplyApple(player, game, action),
+      [Item.handcuff]: (action) => forwardApplyHandcuff(player, game, action),
+      [Item.handsaw]: (action) => forwardApplyHandsaw(player, game, action),
+      [Item.inverter]: (action) => forwardApplyInverter(player, game, action),
+      [Item.hotPotato]: (action) => forwardApplyHotPotato(player, game, action),
+    });
 
-  return delta;
-}
+    return delta;
+  },
+);
 
 export function handleAction(
   action: Action,
   player: PlayerId,
   game: Game,
 ): Result<GameDeltas, string> {
-  const availableActions: Result<ActionType[], string> = maybeFind(
-    (p) => p.id === player,
-    game.playerStates,
-  )
-    .map((p) => Result.ok(p))
-    .unwrapOr(Result.err('No player'))
-    .map((p: PlayerState) =>
-      p.statuses.find((s) => s.type === 'handcuffed')
-        ? [ActionType.pass]
-        : Object.values(ActionType),
-    );
+  const availableActions = getAvailableActions(player, game);
 
-  return availableActions
-    .andThen((actions: ActionType[]) =>
-      actions.includes(action.type)
-        ? Result.ok()
-        : Result.err('This action is not available to you'),
-    )
-    .andThen(() =>
-      matchlike(action)('type')({
-        shoot: (x) => handleShoot(player, game, x),
-        pass: () => forwardNextTurn(game),
-        useItem: (x) => handleUseItem(player, game, x),
-      }),
-    );
+  if (!availableActions.includes(action.type)) {
+    return Result.err('This action is not available to you.');
+  } else {
+    return matchlike(action)('type')({
+      shoot: (x) => handleShoot(player, game, x),
+      pass: () => forwardNextTurn(game),
+      useItem: (x) => handleUseItem(player, game, x),
+    });
+  }
+}
+
+function maybeReboundActionLoop(game: Game): Result<GameDeltas, string> {
+  const player = game.playerStates.find((p) => p.turn === game.turn)?.id;
+  if (!player) return Result.err('Programmer messed up');
+  const availableActions = getAvailableActions(player, game);
+  const done = doneGame(game);
+
+  if (
+    availableActions.length === 1 &&
+    availableActions[0] === ActionType.pass &&
+    !done
+  ) {
+    return handleActionLoop({ type: ActionType.pass }, player, game);
+  } else {
+    return Result.ok([{ game, delta: { type: 'noop' } }]);
+  }
+}
+
+export function handleActionLoop(
+  action: Action,
+  player: PlayerId,
+  game: Game,
+): Result<GameDeltas, string> {
+  return forwardDeltaResults(
+    maybeReboundActionLoop,
+    handleAction(action, player, game),
+  );
 }

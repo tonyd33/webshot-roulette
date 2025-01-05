@@ -33,6 +33,8 @@ export enum Item {
   handcuff = "handcuff",
   nothing = "nothing",
   handsaw = "handsaw",
+  inverter = "inverter",
+  hotPotato = "hotPotato",
 }
 export enum ActionType {
   shoot = "shoot",
@@ -43,7 +45,14 @@ export enum StatusType {
   handcuffed = "handcuffed",
   sawed = "sawed",
   slipperyHands = "slipperyHands",
+  hotPotatoReceiver = "hotPotatoReceiver",
 }
+
+export enum HandsawDamageStackBehavior {
+  multiply = "multiply",
+  add = "add",
+}
+
 export const PlayerIdSchema = z.string();
 
 /**
@@ -55,12 +64,24 @@ const UseItemSchema = z.union([
   z.object({
     type: z.enum([ActionType.useItem]),
     which: z.number().int(),
-    item: z.enum([Item.pop, Item.magnifyingGlass, Item.apple, Item.handsaw]),
+    item: z.enum([
+      Item.pop,
+      Item.magnifyingGlass,
+      Item.apple,
+      Item.handsaw,
+      Item.inverter,
+    ]),
   }),
   z.object({
     type: z.enum([ActionType.useItem]),
     which: z.number().int(),
-    item: z.enum([Item.handcuff]),
+    item: z.literal(Item.handcuff),
+    who: PlayerIdSchema,
+  }),
+  z.object({
+    type: z.enum([ActionType.useItem]),
+    which: z.number().int(),
+    item: z.literal(Item.hotPotato),
     who: PlayerIdSchema,
   }),
 ]);
@@ -92,14 +113,16 @@ export type Delta =
   | { type: "noop" }
   /** Next turn */
   | { type: "pass" }
+  | { type: "hurt"; who: PlayerId; dmg: number }
   | { type: "shoot"; who: PlayerId; hurt: number; bullet: Bullet }
   | { type: "inspect"; bullet: Bullet }
   | { type: "pop"; bullet: Bullet }
   | { type: "nomnom"; who: PlayerId; heal: number }
   | { type: "statusChanges"; statusChanges: PlayerStatusChange[] }
   | { type: "itemChanges"; itemChanges: PlayerItemChange[] }
+  | { type: "inverted" }
   | { type: "reload"; lives: number; blanks: number }
-  | { type: "gg" };
+  | { type: "gg"; winner: PlayerId };
 
 export type Status =
   | {
@@ -107,6 +130,7 @@ export type Status =
       /** null = Number.POSITIVE_INFINITY */
       turns: number | null;
     } & (
+      | { type: StatusType.hotPotatoReceiver }
       | { type: StatusType.handcuffed }
       | { type: StatusType.slipperyHands }
       | { type: StatusType.sawed }
@@ -131,7 +155,8 @@ export type Game = {
 export type PublicGame = Omit<Game, "gun">;
 
 export const GameSettingsSchema = z.object({
-  stackHandsaws: z.boolean(),
+  handsawStackLimit: z.number().int().gte(1),
+  handsawDamageStackBehavior: z.nativeEnum(HandsawDamageStackBehavior),
   handcuffCooldownTurns: z.number().int().gte(0),
   itemDistribution: z.nativeEnum(Item).array(),
   players: z.literal(2),

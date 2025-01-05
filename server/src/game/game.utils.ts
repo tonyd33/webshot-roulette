@@ -10,14 +10,14 @@ import {
   PublicGameDelta,
   PublicGame,
   PlayerId,
-  PlayerStatusChange,
-  StatusType,
   Lobby,
   PublicLobby,
   GameSettings,
+  Delta,
+  ActionType,
 } from '@shared/game/types';
 import { MAX_ROUND_ITEM_REFILL } from './game.constants';
-import { isDefined } from '@shared/typescript';
+import { ensureUnreachable, isDefined } from '@shared/typescript';
 import { find as maybeFind } from '@shared/true-myth/maybe';
 
 export function replaceInArray<X>(
@@ -43,7 +43,9 @@ export function getLatestGame(deltas: GameDelta[]): Result<Game, string> {
 }
 
 export function doneGame(game: Game): boolean {
-  return !!game.playerStates.find((p) => p.health <= 0);
+  const numPlayers = game.playerStates.length;
+  const numDead = game.playerStates.filter((p) => p.health <= 0).length;
+  return numDead + 1 >= numPlayers;
 }
 
 export function findPlayer(
@@ -59,34 +61,8 @@ export function findPlayer(
   return targetPlayer;
 }
 
-export function replacePlayerItemDelta(
-  player: PlayerId,
-  slot: number,
-  item: Item,
-  game: Game,
-): Result<GameDeltas, string> {
-  return Result.ok({
-    game: {
-      ...game,
-      playerStates: game.playerStates.map((p) =>
-        p.id === player
-          ? {
-              ...p,
-              items: replaceInArrayIdx(item, slot, p.items),
-            }
-          : p,
-      ),
-    },
-    delta: {
-      type: 'itemChanges' as const,
-      itemChanges: [{ playerId: player, slot, item }],
-    },
-  }).map((x) => [x]);
-}
-
 export function toPublicGame(game: Game): PublicGame {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { gun, ...rest } = game;
+  const { gun: _gun, ...rest } = game;
   return rest;
 }
 
@@ -151,127 +127,200 @@ export function refillPlayerItems(settings: GameSettings, player: PlayerState) {
   return { items, itemChanges };
 }
 
+// #region Deltas and applications
+
+/**
+ * We can only construct the next game state from a delta for some deltas.
+ * Reloading, for example, does not contain enough information to
+ * deterministically give us the next state.
+ *
+ * TODO: Support all deterministic deltas
+ */
+export type DeterministicDelta = Extract<
+  Delta,
+  { type: 'noop' | 'statusChanges' | 'itemChanges' | 'hurt' }
+>;
+/**
+ * Useful for when we need to generate multiple deltas, but the delta generated
+ * depends on the _current_ state of the game. In such a case, the current state
+ * of the game is lazy loaded into the game argument.
+ */
+export type Lazy<T> = (game: Game) => T;
+
 const flattenDeltas = (d1: GameDeltas) => (d2: GameDeltas) => [...d1, ...d2];
 
-export function forwardDeltaResults(
-  forward: (game: Game) => Result<GameDeltas, string>,
-  deltas: Result<GameDeltas, string>,
-): Result<GameDeltas, string> {
-  const subsequentDeltas = deltas.andThen(getLatestGame).andThen(forward);
-  return Result.ok<typeof flattenDeltas, string>(flattenDeltas)
-    .ap(deltas)
-    .ap(subsequentDeltas);
-}
+/**
+ * Given the current GameDeltas, try to apply `forward` on the latest
+ * `GameDelta.game` and then concatenate the inner `GameDeltas`.
+ *
+ * Can be thought of as a monadic bind operation on Result<GameDeltas, string>.
+ */
+export const forwardDeltaResults = R.curryN(
+  2,
+  function (
+    forward: (game: Game) => Result<GameDeltas, string>,
+    deltas: Result<GameDeltas, string>,
+  ): Result<GameDeltas, string> {
+    const subsequentDeltas = deltas.andThen(getLatestGame).andThen(forward);
+    return Result.ok<typeof flattenDeltas, string>(flattenDeltas)
+      .ap(deltas)
+      .ap(subsequentDeltas);
+  },
+);
 
-export function generateEndOfTurnStatusDeltas(
+export function applyLazyDeltas(
   game: Game,
-): Result<GameDeltas, string> {
-  // fuck it, we're flattening all status changes into a single array as opposed
-  // to a arrays of an array of singular status changes for atomicity of
-  // status changes. doesn't really make a difference right now anyhow, since
-  // status changes are associative
-  const bigStatusChanges: PlayerStatusChange[] = game.playerStates.flatMap(
-    (player) =>
-      player.statuses.flatMap((status): PlayerStatusChange[] => {
-        const turns = status.turns ?? Number.POSITIVE_INFINITY;
-        const upsertedStatus = {
-          playerId: player.id,
-          type: 'upsert' as const,
-          status: {
-            ...status,
-            turns: turns - 1,
-          },
-        };
-        const removedStatus = {
-          playerId: player.id,
-          type: 'rm' as const,
-          index: status.index,
-        };
-        switch (status.type) {
-          case StatusType.handcuffed: {
-            if (turns > 0) {
-              return [upsertedStatus];
-            } else {
-              const slipperyIndex = generateStatusIndex();
-              return [
-                removedStatus,
-                ...(game.settings.handcuffCooldownTurns >= 1
-                  ? [
-                      {
-                        playerId: player.id,
-                        type: 'upsert' as const,
-                        status: {
-                          type: StatusType.slipperyHands,
-                          turns: game.settings.handcuffCooldownTurns - 1,
-                          index: slipperyIndex,
-                        },
-                      },
-                    ]
-                  : []),
-              ];
-            }
-          }
-          default:
-            return [turns > 0 ? upsertedStatus : removedStatus];
-        }
-      }),
+  lazyDeltas: Lazy<DeterministicDelta[]>[],
+) {
+  const initial = Result.ok([{ game, delta: { type: 'noop' as const } }]);
+  return lazyDeltas.reduce(
+    (deltas, lazyDelta) =>
+      forwardDeltaResults((game) => applyDeltas(game, lazyDelta(game)), deltas),
+    initial,
   );
-
-  return Result.ok({
-    game: applyPlayerStatusChanges(game, bigStatusChanges),
-    delta: { type: 'statusChanges' as const, statusChanges: bigStatusChanges },
-  }).map((x) => [x]);
 }
 
-export function applyPlayerStatusChanges(
+export function applyDeltas(
   game: Game,
-  statusChanges: PlayerStatusChange[],
-): Game {
+  deltas: DeterministicDelta[],
+): Result<GameDeltas, string> {
+  const initial = Result.ok([{ game, delta: { type: 'noop' as const } }]);
+  if (deltas.length === 0) return initial;
+
+  return deltas.reduce(
+    (delta, currDeltas) =>
+      forwardDeltaResults((game) => applyDelta(game, currDeltas), delta),
+    initial,
+  );
+}
+
+export const applyDelta = R.curryN(
+  2,
+  function (
+    game: Game,
+    delta: Extract<
+      Delta,
+      { type: 'noop' | 'statusChanges' | 'itemChanges' | 'hurt' }
+    >,
+  ): Result<GameDeltas, string> {
+    switch (delta.type) {
+      case 'noop':
+        return Result.ok([{ game, delta }]);
+      case 'statusChanges':
+        return applyPlayerStatusChangesDelta(game, delta);
+      case 'itemChanges':
+        return applyPlayerItemChangesDelta(game, delta);
+      case 'hurt':
+        return applyHurtDelta(game, delta);
+      default:
+        ensureUnreachable(delta);
+    }
+  },
+);
+
+function applyHurtDelta(
+  game: Game,
+  delta: Extract<Delta, { type: 'hurt' }>,
+): Result<GameDeltas, string> {
+  return Result.ok([
+    {
+      game: {
+        ...game,
+        playerStates: game.playerStates.map((p) => {
+          if (p.id !== delta.who) return p;
+          return {
+            ...p,
+            health: p.health - delta.dmg,
+          };
+        }),
+      },
+      delta,
+    },
+  ]);
+}
+
+function applyPlayerItemChangesDelta(
+  game: Game,
+  delta: Extract<Delta, { type: 'itemChanges' }>,
+): Result<GameDeltas, string> {
+  return Result.ok([
+    {
+      game: {
+        ...game,
+        playerStates: game.playerStates.map((p) => {
+          const itemChangesForPlayer = delta.itemChanges.filter(
+            (i) => i.playerId === p.id,
+          );
+          const newItems = itemChangesForPlayer.reduce(
+            (acc, val) => replaceInArrayIdx(val.item, val.slot, acc),
+            p.items,
+          );
+          return { ...p, items: newItems };
+        }),
+      },
+      delta,
+    },
+  ]);
+}
+
+export function applyPlayerStatusChangesDelta(
+  game: Game,
+  delta: Extract<Delta, { type: 'statusChanges' }>,
+): Result<GameDeltas, string> {
   // this fucking sucks lol. but it works and my eyes are free of this mess 99%
   // of the time so I'm gonna ignore it.
   // TODO: make it better
-  return {
-    ...game,
-    playerStates: game.playerStates.map((player) => {
-      const statusChangesForPlayer = statusChanges.filter(
-        (s) => s.playerId === player.id,
-      );
-      const updatedExistingStatuses = player.statuses
-        .filter(
-          // rm status
-          (status) =>
-            !statusChangesForPlayer.find(
-              (change) => change.type === 'rm' && change.index === status.index,
-            ),
-        )
-        .map((status) => {
-          // update status
-          const newStatus = statusChangesForPlayer.find(
-            (change) =>
-              change.type === 'upsert' && change.status.index === status.index,
+  return Result.ok([
+    {
+      game: {
+        ...game,
+        playerStates: game.playerStates.map((player) => {
+          const statusChangesForPlayer = delta.statusChanges.filter(
+            (s) => s.playerId === player.id,
           );
-          if (newStatus?.type !== 'upsert') return status;
-          return newStatus.status;
-        });
-      const existingStatusesIndexes = updatedExistingStatuses.map(
-        (x) => x.index,
-      );
-      const newStatuses = statusChangesForPlayer
-        .map((s) =>
-          s.type === 'upsert' &&
-          !existingStatusesIndexes.includes(s.status.index)
-            ? s.status
-            : null,
-        )
-        .filter(isDefined);
-      return {
-        ...player,
-        statuses: [...updatedExistingStatuses, ...newStatuses],
-      };
-    }),
-  };
+          const updatedExistingStatuses = player.statuses
+            .filter(
+              // rm status
+              (status) =>
+                !statusChangesForPlayer.find(
+                  (change) =>
+                    change.type === 'rm' && change.index === status.index,
+                ),
+            )
+            .map((status) => {
+              // update status
+              const newStatus = statusChangesForPlayer.find(
+                (change) =>
+                  change.type === 'upsert' &&
+                  change.status.index === status.index,
+              );
+              if (newStatus?.type !== 'upsert') return status;
+              return newStatus.status;
+            });
+          const existingStatusesIndexes = updatedExistingStatuses.map(
+            (x) => x.index,
+          );
+          const newStatuses = statusChangesForPlayer
+            .map((s) =>
+              s.type === 'upsert' &&
+              !existingStatusesIndexes.includes(s.status.index)
+                ? s.status
+                : null,
+            )
+            .filter(isDefined);
+          return {
+            ...player,
+            statuses: [...updatedExistingStatuses, ...newStatuses],
+          };
+        }),
+      },
+      delta,
+    },
+  ]);
 }
+// #endregion
 
+// #region miscellaneous
 export function generateRefillPlayersDelta(
   game: Game,
 ): Result<GameDeltas, string> {
@@ -302,3 +351,21 @@ export function generateRefillPlayersDelta(
 export function generateStatusIndex() {
   return randomstring.generate(16);
 }
+
+export function getAvailableActions(
+  player: PlayerId,
+  game: Game,
+): ActionType[] {
+  const availableActions: Result<ActionType[], string> = findPlayer(
+    player,
+    game,
+  ).map((p: PlayerState) =>
+    p.statuses.find((s) => s.type === 'handcuffed')
+      ? [ActionType.pass]
+      : Object.values(ActionType),
+  );
+
+  return availableActions.unwrapOr([]);
+}
+
+// #endregion

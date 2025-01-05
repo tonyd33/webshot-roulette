@@ -16,6 +16,7 @@ import {
   playerIdEq,
   replaceInArray,
 } from './game.utils';
+import { ensureUnreachable } from '@shared/typescript';
 
 type UseItemAction = Extract<Action, { type: 'useItem' }>;
 
@@ -127,9 +128,9 @@ export function forwardApplyHandsaw(
     .andThen(
       guardResultAndThen(
         (x) =>
-          game.settings.stackHandsaws ||
-          x.statuses.every((s) => s.type !== StatusType.sawed),
-        'Cannot stack handsaws',
+          x.statuses.filter((s) => s.type === StatusType.sawed).length <
+          game.settings.handsawStackLimit,
+        'Handsaw limit reached',
       ),
     )
     .map((p) => {
@@ -155,4 +156,61 @@ export function forwardApplyHandsaw(
         },
       ];
     });
+}
+
+export function forwardApplyInverter(
+  player: PlayerId,
+  game: Game,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  action: Extract<UseItemAction, { item: Item.handsaw }>,
+): Result<GameDeltas, string> {
+  return Result.ok([
+    {
+      game: {
+        ...game,
+        gun: game.gun.map((bullet) => {
+          switch (bullet) {
+            case 'live':
+              return 'blank';
+            case 'blank':
+              return 'live';
+            default:
+              ensureUnreachable(bullet);
+          }
+        }),
+      },
+      delta: { type: 'inverted' },
+    },
+  ]);
+}
+
+export function forwardApplyHotPotato(
+  player: PlayerId,
+  game: Game,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  action: Extract<UseItemAction, { item: Item.hotPotato }>,
+): Result<GameDeltas, string> {
+  return findPlayer(action.who, game).map((p) => {
+    const status: Status = {
+      index: generateStatusIndex(),
+      type: StatusType.hotPotatoReceiver,
+      turns: 0,
+    };
+    return [
+      {
+        game: {
+          ...game,
+          playerStates: replaceInArray(
+            { ...p, statuses: [...p.statuses, status] },
+            playerIdEq,
+            game.playerStates,
+          ),
+        },
+        delta: {
+          type: 'statusChanges',
+          statusChanges: [{ playerId: p.id, type: 'upsert', status }],
+        },
+      },
+    ];
+  });
 }

@@ -23,6 +23,8 @@ const statusTooltip: Record<StatusType, string> = {
   [StatusType.handcuffed]: "Player's turn will be skipped.",
   [StatusType.sawed]: "Player's next shot will deal double damage.",
   [StatusType.slipperyHands]: "Player cannot be handcuffed.",
+  [StatusType.hotPotatoReceiver]:
+    "Player will receive the hot potato. If inventory is full, damage is taken instead.",
 };
 
 const StatusDisplay = React.memo(function (props: StatusDisplayProps) {

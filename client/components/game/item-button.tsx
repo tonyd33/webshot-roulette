@@ -27,6 +27,8 @@ const itemTooltip: Record<Item, string> = {
   [Item.handcuff]: "Skip the opponent's next turn.",
   [Item.handsaw]: "Deal double damage next time you shoot.",
   [Item.nothing]: "Nothing here, wait for the next round!",
+  [Item.inverter]: "Swaps blank and live rounds in the chamber.",
+  [Item.hotPotato]: "Give your opponent a hot potato.",
 };
 
 const ItemButton = React.memo(function (props: ItemButtonProps) {
@@ -37,9 +39,11 @@ const ItemButton = React.memo(function (props: ItemButtonProps) {
       case Item.magnifyingGlass:
       case Item.pop:
       case Item.handsaw:
+      case Item.inverter:
         onUseItem({ type: ActionType.useItem, which: slot, item });
         break;
       case Item.handcuff:
+      case Item.hotPotato:
         onUseItem({
           type: ActionType.useItem,
           which: slot,

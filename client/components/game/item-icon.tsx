@@ -1,10 +1,12 @@
 import React, { useMemo } from "react";
 import { Item } from "@shared/game/types";
 import {
+  GiBodySwapping,
   GiCardboardBox,
   GiHandcuffs,
   GiHandSaw,
   GiMagnifyingGlass,
+  GiPotato,
   GiShinyApple,
   GiSodaCan,
 } from "react-icons/gi";
@@ -31,6 +33,10 @@ const ItemIcon = React.memo(function (props: ItemIconProps) {
         return GiHandcuffs;
       case Item.handsaw:
         return GiHandSaw;
+      case Item.hotPotato:
+        return GiPotato;
+      case Item.inverter:
+        return GiBodySwapping;
       case Item.nothing:
         return GiCardboardBox;
       default:
@@ -51,6 +57,10 @@ const ItemIcon = React.memo(function (props: ItemIconProps) {
         return "text-gray-700";
       case Item.nothing:
         return "text-slate-500";
+      case Item.hotPotato:
+        return "text-orange-500";
+      case Item.inverter:
+        return "text-gray-700";
       default:
         ensureUnreachable(item);
     }

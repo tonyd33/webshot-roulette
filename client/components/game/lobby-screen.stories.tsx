@@ -1,4 +1,8 @@
-import { Item, WaitingLobby } from "@shared/game/types";
+import {
+  HandsawDamageStackBehavior,
+  Item,
+  WaitingLobby,
+} from "@shared/game/types";
 import LobbyScreen from "./lobby-screen";
 import { Meta, StoryObj } from "@storybook/react";
 
@@ -22,7 +26,9 @@ const waiting: WaitingLobby = {
   spectators: ["burly-yellow-groundhog", "rambunctious-cyan-tortoise"],
   creator: "burly-yellow-groundhog",
   settings: {
-    stackHandsaws: false,
+    handsawStackLimit: 1,
+    handsawDamageStackBehavior: HandsawDamageStackBehavior.add,
+    handcuffCooldownTurns: 1,
     itemDistribution: Object.values(Item).filter((x) => x !== Item.nothing),
     players: 2,
   },

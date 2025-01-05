@@ -205,8 +205,8 @@ const SettingsDialogButton = React.memo(function (
     defaultValues: settings,
   });
 
+  // Update settings when changed
   useEffect(() => {
-    console.log("settings", settings);
     for (const [k, v] of Object.entries(settings)) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       form.setValue(k as any, v);
@@ -234,12 +234,14 @@ const SettingsDialogButton = React.memo(function (
             className="space-y-6"
           >
             <div className="flex flex-col space-y-2">
-              <SettingsSwitchFormField
+              <SettingsSliderFormField
                 control={form.control}
                 disabled={!canSave}
-                name="stackHandsaws"
-                tooltip="Allow players to stack handsaws. Stupidly unfair, not recommended."
-                label="Stack handsaws"
+                name="handsawStackLimit"
+                tooltip="Number of handsaws allowed to be stacked. Not recommended to change this."
+                label="Handsaw stack limit"
+                min={0}
+                max={10}
               />
               <SettingsSliderFormField
                 control={form.control}

@@ -7,14 +7,19 @@ import {
   StatusType,
   GameDelta,
   Bullet,
+  Delta,
+  Item,
 } from '@shared/game/types';
 import Result from '@shared/true-myth/result';
 import {
-  applyPlayerStatusChanges,
+  applyLazyDeltas,
+  applyPlayerStatusChangesDelta,
+  DeterministicDelta,
   doneGame,
   forwardDeltaResults,
-  generateEndOfTurnStatusDeltas,
   generateRefillPlayersDelta,
+  generateStatusIndex,
+  Lazy,
 } from './game.utils';
 
 export function forwardStripSawedStatus(
@@ -28,12 +33,10 @@ export function forwardStripSawedStatus(
     })
     .map((s) => ({ type: 'rm', index: s.index, playerId: player }));
 
-  return Result.ok([
-    {
-      game: applyPlayerStatusChanges(game, statusChanges),
-      delta: { type: 'statusChanges', statusChanges },
-    },
-  ]);
+  return applyPlayerStatusChangesDelta(game, {
+    type: 'statusChanges',
+    statusChanges,
+  });
 }
 
 export function forwardStartTurn(game: Game): Result<GameDeltas, string> {
@@ -41,24 +44,23 @@ export function forwardStartTurn(game: Game): Result<GameDeltas, string> {
 }
 
 export function forwardEndTurn(game: Game): Result<GameDeltas, string> {
-  return generateEndOfTurnStatusDeltas(game);
+  return forwardEndOfTurnStatusChanges(game);
 }
 export function forwardNextTurn(game: Game): Result<GameDeltas, string> {
-  let out: Result<GameDeltas, string> = Result.ok([
-    { game: game, delta: { type: 'noop' } },
+  return R.flow(Result.ok([{ game: game, delta: { type: 'noop' as const } }]), [
+    (deltas) => forwardDeltaResults(forwardEndTurn, deltas),
+    (deltas) =>
+      forwardDeltaResults((game) => {
+        const newTurn = (game.turn + 1) % game.playerStates.length;
+        return Result.ok([
+          {
+            game: { ...game, turn: newTurn },
+            delta: { type: 'pass', turn: newTurn },
+          },
+        ]);
+      }, deltas),
+    (deltas) => forwardDeltaResults(forwardStartTurn, deltas),
   ]);
-  out = forwardDeltaResults(forwardEndTurn, out);
-  out = forwardDeltaResults((game) => {
-    const newTurn = (game.turn + 1) % game.playerStates.length;
-    return Result.ok([
-      {
-        game: { ...game, turn: newTurn },
-        delta: { type: 'pass', turn: newTurn },
-      },
-    ]);
-  }, out);
-  out = forwardDeltaResults(forwardStartTurn, out);
-  return out;
 }
 
 export function forwardNextRound(game: Game): Result<GameDeltas, string> {
@@ -82,15 +84,124 @@ export function forwardNextRound(game: Game): Result<GameDeltas, string> {
   );
 }
 
-/** Things that should happen before transferring control back to the player */
+/**
+ * Things that should happen before transferring control back to the player.
+ * TODO: Squash multiple itemChanges and statusChanges into one
+ */
 export function forwardPreTransferControls(
   game: Game,
 ): Result<GameDeltas, string> {
   if (doneGame(game)) {
-    return Result.ok([{ game, delta: { type: 'gg' } }]);
+    const winner = game.playerStates.find((p) => p.health > 0)?.id;
+    if (!winner) return Result.err('Programmer is an idiot, sorry');
+    return Result.ok([{ game, delta: { type: 'gg', winner: winner } }]);
   } else if (game.gun.length === 0) {
     return forwardNextRound(game);
   } else {
     return Result.ok([{ game, delta: { type: 'noop' } }]);
   }
+}
+
+export function forwardEndOfTurnStatusChanges(
+  outerGame: Game,
+): Result<GameDeltas, string> {
+  // fuck it, we're flattening all status changes into a single array as opposed
+  // to a arrays of an array of singular status changes for atomicity of
+  // status changes. doesn't really make a difference right now anyhow, since
+  // status changes are associative
+  const lazyDeltas = outerGame.playerStates.flatMap((player) =>
+    player.statuses.flatMap(
+      (status): Lazy<DeterministicDelta[]> =>
+        (game: Game) => {
+          const turns = status.turns ?? Number.POSITIVE_INFINITY;
+          const upsertedStatus = {
+            type: 'statusChanges' as const,
+            statusChanges: [
+              {
+                playerId: player.id,
+                type: 'upsert' as const,
+                status: {
+                  ...status,
+                  turns: turns - 1,
+                },
+              },
+            ],
+          };
+          const removedStatus = {
+            type: 'statusChanges' as const,
+            statusChanges: [
+              {
+                playerId: player.id,
+                type: 'rm' as const,
+                index: status.index,
+              },
+            ],
+          };
+          switch (status.type) {
+            case StatusType.handcuffed: {
+              if (turns > 0) return [upsertedStatus];
+              else {
+                const slipperyIndex = generateStatusIndex();
+                return [
+                  removedStatus,
+                  ...(game.settings.handcuffCooldownTurns >= 1
+                    ? [
+                        {
+                          type: 'statusChanges' as const,
+                          statusChanges: [
+                            {
+                              playerId: player.id,
+                              type: 'upsert' as const,
+                              status: {
+                                type: StatusType.slipperyHands,
+                                turns: game.settings.handcuffCooldownTurns - 1,
+                                index: slipperyIndex,
+                              },
+                            },
+                          ],
+                        },
+                      ]
+                    : []),
+                ];
+              }
+            }
+            // alright, clean this fuckin shit ass code up
+            // TODO: Clean up code
+            case StatusType.hotPotatoReceiver: {
+              if (turns > 0) return [upsertedStatus];
+              const updatedPlayer = game.playerStates.find(
+                (p) => p.id === player.id,
+              )!;
+              const firstEmptySlotIndex = updatedPlayer.items.findIndex(
+                (i) => i === Item.nothing,
+              );
+              if (firstEmptySlotIndex === -1) {
+                return [
+                  removedStatus,
+                  { type: 'hurt', dmg: 1, who: player.id },
+                ];
+              } else {
+                return [
+                  removedStatus,
+                  {
+                    type: 'itemChanges',
+                    itemChanges: [
+                      {
+                        playerId: player.id,
+                        slot: firstEmptySlotIndex,
+                        item: Item.hotPotato,
+                      },
+                    ],
+                  },
+                ];
+              }
+            }
+            default:
+              return [turns > 0 ? upsertedStatus : removedStatus];
+          }
+        },
+    ),
+  );
+
+  return applyLazyDeltas(outerGame, lazyDeltas);
 }

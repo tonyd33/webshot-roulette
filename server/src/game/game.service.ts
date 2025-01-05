@@ -22,6 +22,7 @@ import {
   Game,
   PublicLobby,
   GameSettingsSchema,
+  HandsawDamageStackBehavior,
 } from '@shared/game/types';
 import {
   MAX_LOBBY_TTL_SECONDS,
@@ -35,7 +36,7 @@ import {
   toPublicDeltas,
   toPublicLobby,
 } from './game.utils';
-import { handleAction } from './game.handlers';
+import { handleAction, handleActionLoop } from './game.handlers';
 import { forwardPreTransferControls } from './game.forwarders';
 import { forwardNextRound } from './game.forwarders';
 
@@ -146,7 +147,8 @@ export class GameService {
       spectators: [],
       creator: playerId,
       settings: {
-        stackHandsaws: false,
+        handsawStackLimit: 1,
+        handsawDamageStackBehavior: HandsawDamageStackBehavior.add,
         handcuffCooldownTurns: 1,
         itemDistribution: Object.values(Item).filter((x) => x !== Item.nothing),
         players: 2,
@@ -228,20 +230,20 @@ export class GameService {
       .then(
         R.pipe(
           guardPromise(
-            (x: Lobby) => x.state === 'waiting',
+            (l: Lobby) => l.state === 'waiting',
             'Game already started',
           ),
-          (x) => x as WaitingLobby,
+          (l) => l as WaitingLobby,
         ),
       )
       .then(
         R.pipe(
           guardPromise(
-            (x) => x.players.length === MAX_PLAYERS,
+            (w) => w.players.length === MAX_PLAYERS,
             'Not enough players',
           ),
           guardPromise(
-            (x) => x.creator === playerId,
+            (w) => w.creator === playerId,
             'Only the creator can start',
           ),
         ),
@@ -300,8 +302,7 @@ export class GameService {
       .then(unwrapOrThrow)
       .then(
         guardPromise(
-          (g: Game) =>
-            g.playerStates.find((x) => x.turn === g.turn)?.id === player,
+          (g) => g.playerStates.find((x) => x.turn === g.turn)?.id === player,
           'Not your turn',
         ),
       )
@@ -311,7 +312,7 @@ export class GameService {
       )
       .then((deltas) =>
         forwardDeltaResults(
-          (game) => handleAction(action, player, game),
+          (game) => handleActionLoop(action, player, game),
           deltas,
         ),
       )
