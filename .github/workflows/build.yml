@@ -2,8 +2,9 @@ name: Build and push Docker image
 
 on:
   push:
-    branches:
-      - master
+    # TODO: Uncomment before merging
+    # branches:
+      # - master
 
 env:
   REGISTRY: ghcr.io

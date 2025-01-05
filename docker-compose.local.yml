@@ -1,0 +1,14 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server.Dockerfile
+      tags:
+        - "webshot-roulette/server:local"
+
+  client:
+    build:
+      context: .
+      dockerfile: client.Dockerfile
+      tags:
+        - "webshot-roulette/client:local"

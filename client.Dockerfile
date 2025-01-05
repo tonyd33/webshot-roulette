@@ -4,13 +4,25 @@ RUN apk add --no-cache tini curl
 
 WORKDIR /client
 
-COPY shared ../shared
+COPY shared/package.json shared/package-lock.json ../shared/
 RUN cd ../shared && npm install
 
 COPY client/package.json client/package-lock.json ./
 RUN npm install
 
-COPY client .
+COPY shared/src ../shared/src
+
+COPY client/next.config.ts \
+     client/tailwind.config.ts \
+     client/tsconfig.json \
+     client/postcss.config.mjs \
+     ./
+COPY client/pages ./pages
+COPY client/lib ./lib
+COPY client/public ./public
+COPY client/components ./components
+COPY client/hooks ./hooks
+COPY client/app ./app
 
 RUN npm run build
 
