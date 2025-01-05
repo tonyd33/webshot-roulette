@@ -20,7 +20,7 @@
     "esModuleInterop": true,
     "isolatedModules": true,
     "paths": {
-      "@shared/*": ["../shared/*"]
+      "@shared/*": ["../shared/src/*"]
     }
   },
   "include": ["src"]
