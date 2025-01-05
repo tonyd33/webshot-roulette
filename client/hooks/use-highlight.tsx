@@ -29,7 +29,7 @@ export function useHighlight(opts?: { dismissable?: boolean }) {
     overlay.style.left = "0";
     overlay.style.width = "100vw";
     overlay.style.height = "100vh";
-    overlay.style.zIndex = "9998";
+    overlay.style.zIndex = "9999";
     overlay.style.pointerEvents = "none";
     overlay.style.backgroundColor = "rgba(0, 0, 0, 0.7)";
     // fuck lol, we won't be able to add any border radius to this and this

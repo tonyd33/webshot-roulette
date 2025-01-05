@@ -1,7 +1,6 @@
 "use client";
 import Chat from "@/components/game/chat";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Socket } from "socket.io-client";
 import { useStableCallback } from "@/hooks/use-stable-callback";
 import {
   Action,
@@ -119,13 +118,23 @@ function LobbyClient({ lobbyId }: { lobbyId: string }) {
       }),
     []
   );
+  const handleChangeActivity = useStableCallback(
+    (to: "spectate" | "active") => {
+      console.log(to);
+      socket.emit(ClientEvent.changeActivity, {
+        lobbyId,
+        to,
+      });
+    },
+    [lobbyId]
+  );
 
   return (
     <div className="p-8 md:p-14">
       {lobby && playerId ? (
         <LobbyScreen
           lobby={lobby}
-          onChangeActivity={() => {}}
+          onChangeActivity={handleChangeActivity}
           onStart={handleStart}
           deltas={deltas}
           onPopDelta={handlePopDelta}

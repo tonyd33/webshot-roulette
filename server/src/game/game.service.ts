@@ -92,7 +92,7 @@ export class GameService {
       .catch(catchPromise);
   }
 
-  async createLobby(): Promise<Result<Lobby, string>> {
+  async createLobby(playerId: PlayerId): Promise<Result<Lobby, string>> {
     const lobbyId: LobbyId =
       `${randomstring.generate(3)}-${randomstring.generate(3)}`.toLowerCase();
     const lobby: Lobby = {
@@ -100,19 +100,11 @@ export class GameService {
       state: 'waiting',
       players: [],
       spectators: [],
+      creator: playerId,
     };
     await this.#syncLobbyEffect(lobbyId, lobby);
 
     return Result.ok(lobby);
-  }
-
-  async getOrCreateLobby(lobbyId: LobbyId): Promise<Result<Lobby, string>> {
-    const existingLobby = await this.getLobby(lobbyId);
-    if (existingLobby.isOk) {
-      return existingLobby;
-    } else {
-      return this.createLobby();
-    }
   }
 
   async changeActivity(
@@ -142,15 +134,18 @@ export class GameService {
             spectators: R.uniq([...x.spectators, playerId]),
           });
         }
-      });
+      })
+      .then(unwrapOrThrow)
+      .then((lobby) => this.#syncLobbyEffect(lobbyId, lobby))
+      .then((x) => Result.ok(x))
+      .catch(catchPromise);
   }
 
   async joinLobby(
     lobbyId: LobbyId,
     playerId: PlayerId,
   ): Promise<Result<Lobby, string>> {
-    // TODO: Make this get only
-    const lobby = await this.getOrCreateLobby(lobbyId)
+    const lobby = await this.getLobby(lobbyId)
       .then(unwrapOrThrow)
       .then((x: Lobby): Lobby => {
         if (x.players.includes(playerId) || x.spectators.includes(playerId)) {
@@ -170,6 +165,7 @@ export class GameService {
 
   async start(
     lobbyId: LobbyId,
+    playerId: PlayerId,
   ): Promise<Result<{ lobby: Lobby; deltas: PublicGameDelta[] }, string>> {
     const deltas: Result<PublicGameDelta[], string> = await this.getLobby(
       lobbyId,
@@ -182,6 +178,18 @@ export class GameService {
             'Game already started',
           ),
           (x) => x as Waiting,
+        ),
+      )
+      .then(
+        R.pipe(
+          guardPromise(
+            (x) => x.players.length === MAX_PLAYERS,
+            'Not enough players',
+          ),
+          guardPromise(
+            (x) => x.creator === playerId,
+            'Only the creator can start',
+          ),
         ),
       )
       .then(

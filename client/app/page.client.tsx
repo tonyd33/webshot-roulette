@@ -16,7 +16,6 @@ function HomeClient() {
     });
     socket.on(ServerEvent.syncLobby, (data: Lobby) => {
       router.push(`/${data.id}`);
-      // router.refresh();
     });
     return () => {
       socket.removeAllListeners();
@@ -25,7 +24,7 @@ function HomeClient() {
   }, [router]);
 
   return (
-    <div>
+    <div className="flex flex-col justify-center items-center p-8">
       <Button
         onClick={() => {
           socket.emit(ClientEvent.create);

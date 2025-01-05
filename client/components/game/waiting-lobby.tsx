@@ -3,7 +3,7 @@ import React from "react";
 import { Button } from "../ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "../ui/avatar";
 import classNames from "classnames";
-import { FaChevronDown, FaChevronUp, FaCrown } from "react-icons/fa";
+import { FaChevronDown, FaChevronUp, FaCopy, FaCrown } from "react-icons/fa";
 import { useStableCallback } from "@/hooks/use-stable-callback";
 
 export type WaitingLobbyProps = {
@@ -61,8 +61,19 @@ const WaitingLobby = React.memo(function (props: WaitingLobbyProps) {
     () => onChangeActivity("spectate"),
     [onChangeActivity]
   );
+
+  const handleCopy = useStableCallback(() => {
+    navigator.clipboard.writeText(window.location.href);
+  }, []);
+
   return (
     <div className="flex flex-col items-center justify-center space-y-6">
+      <div className="flex flex-row items-center space-x-4">
+        <Button onClick={handleCopy} variant="ghost" className="text-lg">
+          <span>{window.location.href}</span>
+          <FaCopy />
+        </Button>
+      </div>
       <div
         className={classNames("grow text-center", {
           "opacity-50": me && !lobby.players.includes(me),

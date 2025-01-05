@@ -20,13 +20,13 @@ const waiting: Waiting = {
   state: "waiting",
   players: ["previous-scarlet-lizard", "mad-magenta-leech"],
   spectators: ["burly-yellow-groundhog", "rambunctious-cyan-tortoise"],
+  creator: "burly-yellow-groundhog",
 };
 
 export const Default = {
   args: {
     lobby: waiting,
     me: "previous-scarlet-lizard",
-    creator: "burly-yellow-groundhog",
   },
 } satisfies Story;
 

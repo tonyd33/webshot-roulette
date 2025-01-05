@@ -123,6 +123,7 @@ export type Lobby = {
   id: LobbyId;
   spectators: PlayerId[];
   players: PlayerId[];
+  creator: PlayerId;
 } & (
   | {
       state: "active";

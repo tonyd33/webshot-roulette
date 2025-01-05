@@ -1,0 +1,6 @@
+.next
+.storybook
+.vscode
+node_modules
+stories
+tsconfig.tsbuildinfo

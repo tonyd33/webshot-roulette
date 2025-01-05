@@ -4,17 +4,17 @@ import { Toaster } from "@/components/ui/toaster";
 import { Comic_Neue } from "next/font/google";
 import "./globals.css";
 
-export const geistSans = Geist({
+const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
 });
 
-export const geistMono = Geist_Mono({
+const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
 
-export const comic_neue = Comic_Neue({
+const comic_neue = Comic_Neue({
   subsets: ["latin"],
   display: "swap",
   variable: "--font-comic-neue",

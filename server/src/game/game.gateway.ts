@@ -8,7 +8,7 @@ import {
 } from '@nestjs/websockets';
 import { Socket, Server } from 'socket.io';
 import * as randomstring from 'randomstring';
-import Result, { map } from '@shared/true-myth/result';
+import Result, { map, tryOr } from '@shared/true-myth/result';
 import { parse, serialize } from 'cookie';
 import { GameService } from './game.service';
 import * as R from 'ramda';
@@ -29,7 +29,9 @@ const SOCKETIO_COOKIE = 'ioid';
 const salt = 'foo bar baz qux';
 
 const getClientId = (client: Socket): Result<string, string> => {
-  const parsed = parse(client.handshake.headers.cookie ?? '')[SOCKETIO_COOKIE];
+  const parsed = parse(
+    client.handshake.headers.cookie ?? client.request.headers.cookie ?? '',
+  )[SOCKETIO_COOKIE];
   return parsed ? Result.ok(parsed) : Result.err('Who are you?');
 };
 
@@ -44,19 +46,25 @@ const getPlayerId = (client: Socket): Result<string, string> => {
 };
 
 const handleCookie = (headers, request) => {
-  if (!request.headers.cookie) return;
+  const cookie = tryOr('No cookies', () =>
+    parse(request.headers.cookie),
+  ).andThen((cookies) =>
+    cookies[SOCKETIO_COOKIE] ? Result.ok() : Result.err('No cookie'),
+  );
 
-  const cookies = parse(request.headers.cookie);
-  if (!cookies[SOCKETIO_COOKIE]) {
-    headers['Set-Cookie'] = serialize(
-      SOCKETIO_COOKIE,
-      randomstring.generate(32),
-      {
-        maxAge: 86400,
-        sameSite: 'lax',
-        secure: false,
-      },
-    );
+  if (cookie.isErr) {
+    const clientId = randomstring.generate(32);
+    const cookieStr = serialize(SOCKETIO_COOKIE, clientId, {
+      maxAge: 86400,
+      sameSite: 'lax',
+      secure: false,
+    });
+    headers['Set-Cookie'] = cookieStr;
+    // temporary measure to make sure we can later fetch the cookie in
+    // getClientId
+    // TODO: don't do this lol
+    headers.cookie = `${headers.cookie}; ${cookieStr}`;
+    request.headers.cookie = `${request.headers.cookie}; ${cookieStr}`;
   }
 };
 
@@ -97,7 +105,7 @@ export class GameGateway {
 
   afterInit() {
     this.server.engine.on('initial_headers', handleCookie);
-    this.server.engine.on('headers', handleCookie);
+    // this.server.engine.on('headers', handleCookie);
   }
 
   @SubscribeMessage(ClientEvent.create)
@@ -111,7 +119,7 @@ export class GameGateway {
             console.log(`Creating new lobby for ${clientId}`),
           ),
         )
-        .map(() => this.gameService.createLobby())
+        .map((clientId) => this.gameService.createLobby(clientId))
         .unwrapOrElse((e: string) => Promise.resolve(Result.err(e))),
     );
   }
@@ -123,7 +131,7 @@ export class GameGateway {
     { lobbyId, to }: { lobbyId: string; to: 'spectate' | 'active' },
   ) {
     withSyncResult(
-      (payload) => client.emit(ServerEvent.syncLobby, payload),
+      (payload) => this.server.to(lobbyId).emit(ServerEvent.syncLobby, payload),
       (payload) => client.emit(ServerEvent.error, payload),
       await getPlayerId(client)
         .map(
@@ -234,7 +242,7 @@ export class GameGateway {
             console.log(`Client ${clientId} started on lobby ${lobbyId}`),
           ),
         )
-        .map(() => this.gameService.start(lobbyId))
+        .map((clientId) => this.gameService.start(lobbyId, clientId))
         .unwrapOrElse((e: string) => Promise.resolve(Result.err(e))),
     );
   }

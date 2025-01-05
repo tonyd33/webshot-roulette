@@ -14,7 +14,6 @@ export type LobbyScreenProps = {
   lobby: Lobby;
 
   me: PlayerId;
-  creator?: PlayerId;
   onChangeActivity: (to: "spectate" | "active") => unknown;
   onStart: () => unknown;
 
@@ -31,7 +30,6 @@ const LobbyScreen = React.memo(function (props: LobbyScreenProps) {
     onChangeActivity,
     onStart,
     me,
-    creator,
     deltas,
     onPopDelta,
     onUseItem,
@@ -45,7 +43,7 @@ const LobbyScreen = React.memo(function (props: LobbyScreenProps) {
           lobby={lobby}
           onStart={onStart}
           me={me}
-          creator={creator}
+          creator={lobby.creator}
           onChangeActivity={onChangeActivity}
         />
       );
